@@ -4,39 +4,74 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+export default function SignupPage() {
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email || !password) {
-      setError("Enter your email and password.");
+    if (!fullName || !email || !password) {
+      setError("Fill in your name, email, and password.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password needs to be at least 8 characters.");
       return;
     }
     setLoading(true);
     setError(null);
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: fullName } },
+    });
     setLoading(false);
-    if (signInError) {
-      setError("Couldn't sign in. Check your email and password.");
+    if (signUpError) {
+      setError(signUpError.message);
       return;
     }
-    router.push("/");
-    router.refresh();
+    if (data.session) {
+      router.push("/");
+      router.refresh();
+      return;
+    }
+    setDone(true);
+  }
+
+  if (done) {
+    return (
+      <main style={{ maxWidth: 360, margin: "10vh auto", padding: "0 1.5rem" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 8 }}>Check your email</h1>
+        <p style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          We sent a confirmation link to {email}. Click it, then come back and sign in.
+        </p>
+      </main>
+    );
   }
 
   return (
     <main style={{ maxWidth: 360, margin: "10vh auto", padding: "0 1.5rem" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>ACMS</h1>
+      <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Create account</h1>
       <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>
-        Anticoagulation Management System
+        ACMS — for clinic staff only
       </p>
       <form onSubmit={handleSubmit}>
+        <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+          Full name
+        </label>
+        <input
+          type="text"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder="Dr. Lim Wei Jian"
+          style={{ width: "100%", marginBottom: 12, height: 36 }}
+        />
         <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
           Email
         </label>
@@ -75,11 +110,11 @@ export default function LoginPage() {
             marginTop: 8,
           }}
         >
-          {loading ? "Signing in…" : "Sign in"}
+          {loading ? "Creating account…" : "Create account"}
         </button>
       </form>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 16 }}>
-        New here? <a href="/signup">Create an account</a>
+        Already have an account? <a href="/login">Sign in</a>
       </p>
     </main>
   );
