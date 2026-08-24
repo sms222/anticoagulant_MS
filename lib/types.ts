@@ -23,6 +23,9 @@ export interface Patient {
   status: string;
   intake_date: string;
   notes: string | null;
+  phone: string | null;
+  address: string | null;
+  risk_class: "low" | "medium" | "high" | null;
 }
 
 export interface Encounter {
@@ -34,6 +37,7 @@ export interface Encounter {
   next_appt_date: string | null;
   audio_transcript: string | null;
   ai_pipeline_used: boolean;
+  room: string | null;
 }
 
 export interface LabResult {

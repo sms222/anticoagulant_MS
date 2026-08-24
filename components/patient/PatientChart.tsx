@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { Patient, Encounter, LabResult, ScoringResult } from "@/lib/types";
 import { calculateAge, isWarfarin } from "@/lib/types";
 import {
@@ -13,7 +14,14 @@ import {
   calculateExtremeValueRate,
 } from "@/lib/calculators/inr-variability";
 
-type Tab = "metrics" | "graph" | "history" | "labs" | "notes";
+type TopTab = "dosing" | "labs";
+type SubTab = "metrics" | "graph" | "history" | "notes";
+
+const riskColors: Record<string, { bg: string; text: string }> = {
+  high: { bg: "var(--bg-danger)", text: "var(--text-danger)" },
+  medium: { bg: "var(--bg-warning)", text: "var(--text-warning)" },
+  low: { bg: "var(--bg-success)", text: "var(--text-success)" },
+};
 
 export function PatientChart({
   patient,
@@ -28,7 +36,8 @@ export function PatientChart({
   creatinineLabs: LabResult[];
   hasBledResults: ScoringResult[];
 }) {
-  const [tab, setTab] = useState<Tab>("metrics");
+  const [topTab, setTopTab] = useState<TopTab>("dosing");
+  const [subTab, setSubTab] = useState<SubTab>("metrics");
   const warfarin = isWarfarin(patient);
   const age = calculateAge(patient.date_of_birth);
 
@@ -54,62 +63,129 @@ export function PatientChart({
     ? creatinineLabs[creatinineLabs.length - 1]
     : null;
 
+  const avgIntervalDays = (() => {
+    if (inrLabs.length < 2) return null;
+    const sorted = [...inrLabs].sort((a, b) => a.test_date.localeCompare(b.test_date));
+    let totalDays = 0;
+    for (let i = 1; i < sorted.length; i++) {
+      totalDays +=
+        (new Date(sorted[i].test_date).getTime() - new Date(sorted[i - 1].test_date).getTime()) /
+        (1000 * 60 * 60 * 24);
+    }
+    return Math.round(totalDays / (sorted.length - 1));
+  })();
+
+  const risk = patient.risk_class ? riskColors[patient.risk_class] : null;
+
+  function handlePrint() {
+    window.print();
+  }
+
   return (
     <div style={{ border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: "0.5px solid var(--border)" }}>
         <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{patient.name}</p>
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
           {patient.date_of_birth ? `DOB ${patient.date_of_birth}` : ""}
-          {age !== null ? ` (${age}y)` : ""} &middot; {patient.anticoagulant_type}
+          {patient.mrn ? ` \u00b7 ID ${patient.mrn}` : ""}
+          {patient.address ? ` \u00b7 ${patient.address}` : ""}
         </p>
       </div>
 
       <div style={{ display: "flex" }}>
-        <div style={{ width: 170, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
-          <SidebarField label="Sex" value={patient.sex ?? "—"} />
+        <div style={{ width: 180, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
+          {patient.risk_class && risk && (
+            <>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px" }}>Risk class</p>
+              <span
+                style={{
+                  background: risk.bg,
+                  color: risk.text,
+                  fontSize: 12,
+                  padding: "2px 8px",
+                  borderRadius: "var(--radius)",
+                  display: "inline-block",
+                  marginBottom: 12,
+                  textTransform: "capitalize",
+                }}
+              >
+                {patient.risk_class}
+              </span>
+            </>
+          )}
+          <SidebarField label="Phone" value={patient.phone ?? "\u2014"} />
           <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-            <SidebarField label="Age" value={age?.toString() ?? "—"} />
-            <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "—"} />
-            <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "—"} />
+            <SidebarField label="Age" value={age?.toString() ?? "\u2014"} />
+            <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "\u2014"} />
+            <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "\u2014"} />
           </div>
           <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
-            <SidebarField label="Indication" value={patient.indication.replace(/_/g, " ")} />
+            <SidebarField label="Diagnosis" value={patient.indication.replace(/_/g, " ")} />
             {warfarin && (
               <SidebarField
                 label="Target range"
-                value={`${patient.target_inr_low}–${patient.target_inr_high}`}
+                value={`${patient.target_inr_low}\u2013${patient.target_inr_high}`}
               />
             )}
             <SidebarField label="Anticoagulant" value={patient.anticoagulant_type} />
-            <SidebarField label="Intake date" value={patient.intake_date} />
+            <SidebarField label="Start date" value={patient.intake_date} />
           </div>
         </div>
 
         <div style={{ flex: 1, padding: "14px 18px", minWidth: 0 }}>
-          <TabBar tab={tab} setTab={setTab} />
+          <TopTabBar topTab={topTab} setTopTab={setTopTab} />
 
-          {tab === "metrics" && (
-            <MetricsView
-              warfarin={warfarin}
-              ttr={ttr}
-              pinrr={pinrr}
-              variability={variability}
-              extremeRate={extremeRate}
-              inrCount={inrLabs.length}
-              latestHasBled={latestHasBled}
-              latestCreatinine={latestCreatinine}
-              weightKg={patient.weight_kg}
-              age={age}
-              sex={patient.sex}
-            />
+          {topTab === "dosing" && (
+            <>
+              <SubTabBar subTab={subTab} setSubTab={setSubTab} />
+              {subTab === "metrics" && (
+                <MetricsView
+                  warfarin={warfarin}
+                  ttr={ttr}
+                  pinrr={pinrr}
+                  variability={variability}
+                  extremeRate={extremeRate}
+                  inrCount={inrLabs.length}
+                  avgIntervalDays={avgIntervalDays}
+                  latestHasBled={latestHasBled}
+                  latestCreatinine={latestCreatinine}
+                />
+              )}
+              {subTab === "graph" && (
+                <GraphView warfarin={warfarin} inrLabs={inrLabs} creatinineLabs={creatinineLabs} hasBledResults={hasBledResults} />
+              )}
+              {subTab === "history" && (
+                <HistoryView encounters={encounters} inrLabs={inrLabs} targetLow={patient.target_inr_low} targetHigh={patient.target_inr_high} />
+              )}
+              {subTab === "notes" && <NotesView encounters={encounters} />}
+            </>
           )}
-          {tab === "graph" && (
-            <GraphView warfarin={warfarin} inrLabs={inrLabs} creatinineLabs={creatinineLabs} hasBledResults={hasBledResults} />
-          )}
-          {tab === "history" && <HistoryView encounters={encounters} />}
-          {tab === "labs" && <LabsView inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
-          {tab === "notes" && <NotesView encounters={encounters} />}
+          {topTab === "labs" && <LabsView inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
         </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, padding: "12px 18px", borderTop: "0.5px solid var(--border)", justifyContent: "flex-end" }}>
+        <Link href="/" style={{ textDecoration: "none" }}>
+          <button style={{ fontSize: 13, padding: "6px 14px" }}>Back to list</button>
+        </Link>
+        <button style={{ fontSize: 13, padding: "6px 14px" }} onClick={handlePrint}>
+          Print
+        </button>
+        <button
+          disabled
+          title="Editing isn't wired up yet"
+          style={{
+            background: "var(--surface-1)",
+            color: "var(--text-muted)",
+            border: "none",
+            fontSize: 13,
+            padding: "6px 14px",
+            borderRadius: "var(--radius)",
+            cursor: "not-allowed",
+          }}
+        >
+          Save
+        </button>
       </div>
     </div>
   );
@@ -124,28 +200,30 @@ function SidebarField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TabBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
-  const tabs: { key: Tab; label: string }[] = [
+function TopTabBar({ topTab, setTopTab }: { topTab: TopTab; setTopTab: (t: TopTab) => void }) {
+  const placeholders = ["Contacts", "Drugs", "Events", "Reminders", "Documents"];
+  return (
+    <div style={{ display: "flex", gap: 16, borderBottom: "0.5px solid var(--border)", marginBottom: 14, fontSize: 13, flexWrap: "wrap" }}>
+      <span onClick={() => setTopTab("dosing")} style={tabStyle(topTab === "dosing")}>Dosing</span>
+      <span onClick={() => setTopTab("labs")} style={tabStyle(topTab === "labs")}>Labs</span>
+      {placeholders.map((p) => (
+        <span key={p} style={{ paddingBottom: 8, color: "var(--text-muted)" }}>{p}</span>
+      ))}
+    </div>
+  );
+}
+
+function SubTabBar({ subTab, setSubTab }: { subTab: SubTab; setSubTab: (t: SubTab) => void }) {
+  const tabs: { key: SubTab; label: string }[] = [
     { key: "metrics", label: "Metrics" },
     { key: "graph", label: "Graph" },
     { key: "history", label: "History" },
-    { key: "labs", label: "Labs" },
     { key: "notes", label: "Notes" },
   ];
   return (
     <div style={{ display: "flex", gap: 16, borderBottom: "0.5px solid var(--border)", marginBottom: 12, fontSize: 13 }}>
       {tabs.map((t) => (
-        <span
-          key={t.key}
-          onClick={() => setTab(t.key)}
-          style={{
-            paddingBottom: 8,
-            cursor: "pointer",
-            color: tab === t.key ? "var(--text-accent)" : "var(--text-muted)",
-            fontWeight: tab === t.key ? 500 : 400,
-            borderBottom: tab === t.key ? "2px solid var(--border-accent)" : "none",
-          }}
-        >
+        <span key={t.key} onClick={() => setSubTab(t.key)} style={tabStyle(subTab === t.key)}>
           {t.label}
         </span>
       ))}
@@ -153,11 +231,21 @@ function TabBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   );
 }
 
+function tabStyle(active: boolean): React.CSSProperties {
+  return {
+    paddingBottom: 8,
+    cursor: "pointer",
+    color: active ? "var(--text-accent)" : "var(--text-muted)",
+    fontWeight: active ? 500 : 400,
+    borderBottom: active ? "2px solid var(--border-accent)" : "none",
+  };
+}
+
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ background: "var(--surface-1)", borderRadius: "var(--radius)", padding: "0.7rem" }}>
-      <p style={{ fontSize: 10, color: "var(--text-secondary)", margin: "0 0 3px" }}>{label}</p>
-      <p style={{ fontSize: 17, fontWeight: 500, margin: 0 }}>{value}</p>
+    <div style={{ background: "var(--surface-1)", borderRadius: "var(--radius)", padding: "0.85rem" }}>
+      <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "0 0 4px" }}>{label}</p>
+      <p style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>{value}</p>
     </div>
   );
 }
@@ -169,34 +257,32 @@ function MetricsView(props: {
   variability: { coefficientOfVariation: number; standardDeviation: number; mean: number } | null;
   extremeRate: number | null;
   inrCount: number;
+  avgIntervalDays: number | null;
   latestHasBled: number | null;
   latestCreatinine: LabResult | null;
-  weightKg: number | null;
-  age: number | null;
-  sex: "male" | "female" | null;
 }) {
-  const { warfarin, ttr, pinrr, variability, extremeRate, inrCount, latestHasBled, latestCreatinine } = props;
+  const { warfarin, ttr, pinrr, variability, extremeRate, inrCount, avgIntervalDays, latestHasBled, latestCreatinine } = props;
 
   if (!warfarin) {
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-        <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "—"} />
-        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
-        <MetricCard label="Renal checks logged" value={"see Graph tab"} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+        <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "\u2014"} />
+        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
       </div>
     );
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
-      <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "—"} />
-      <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "—"} />
-      <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "—"} />
-      <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "—"} />
-      <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "—"} />
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+      <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "\u2014"} />
+      <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "\u2014"} />
+      <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "\u2014"} />
+      <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "\u2014"} />
+      <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "\u2014"} />
+      <MetricCard label="Monitoring interval" value={avgIntervalDays ? `${avgIntervalDays}d avg` : "\u2014"} />
       <MetricCard label="Readings to date" value={inrCount.toString()} />
-      <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "—"} />
-      <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
+      <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "\u2014"} />
+      <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
     </div>
   );
 }
@@ -217,18 +303,18 @@ function GraphView({
   return (
     <div>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px" }}>{label} trend</p>
-      <SimpleSparkline points={series.map((s) => s.result_value)} labels={series.map((s) => s.test_date)} />
+      <SimpleSparkline points={series.map((s) => s.result_value)} />
       {hasBledResults.length > 0 && (
         <>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "12px 0 6px" }}>HAS-BLED over time</p>
-          <SimpleSparkline points={hasBledResults.map((h) => h.score_value)} labels={hasBledResults.map((h) => h.score_date)} stepped />
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>HAS-BLED over time</p>
+          <SimpleSparkline points={hasBledResults.map((h) => h.score_value)} stepped />
         </>
       )}
     </div>
   );
 }
 
-function SimpleSparkline({ points, labels, stepped }: { points: number[]; labels: string[]; stepped?: boolean }) {
+function SimpleSparkline({ points, stepped }: { points: number[]; stepped?: boolean }) {
   if (points.length === 0) return <p style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet</p>;
   const max = Math.max(...points);
   const min = Math.min(...points);
@@ -261,34 +347,86 @@ function SimpleSparkline({ points, labels, stepped }: { points: number[]; labels
   );
 }
 
-function HistoryView({ encounters }: { encounters: Encounter[] }) {
+function HistoryView({
+  encounters,
+  inrLabs,
+  targetLow,
+  targetHigh,
+}: {
+  encounters: Encounter[];
+  inrLabs: LabResult[];
+  targetLow: number | null;
+  targetHigh: number | null;
+}) {
+  function inRangeBarFor(date: string) {
+    const lab = inrLabs.find((l) => l.test_date === date);
+    if (!lab || !targetLow || !targetHigh) return null;
+    const v = lab.result_value;
+    let pct: number;
+    let color: string;
+    if (v >= targetLow && v <= targetHigh) {
+      pct = 90;
+      color = "#1baf7a";
+    } else {
+      const diff = v < targetLow ? targetLow - v : v - targetHigh;
+      if (diff <= 0.3) {
+        pct = 60;
+        color = "#eda100";
+      } else {
+        pct = 30;
+        color = "#e34948";
+      }
+    }
+    return { pct, color, value: v };
+  }
+
   return (
     <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
         <thead>
           <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
-            <th style={{ textAlign: "left", padding: "7px 8px", color: "var(--text-secondary)", fontWeight: 500, width: "22%" }}>Date</th>
-            <th style={{ textAlign: "left", padding: "7px 8px", color: "var(--text-secondary)", fontWeight: 500, width: "22%" }}>Dose</th>
-            <th style={{ textAlign: "left", padding: "7px 8px", color: "var(--text-secondary)", fontWeight: 500, width: "28%" }}>Next appt</th>
-            <th style={{ textAlign: "left", padding: "7px 8px", color: "var(--text-secondary)", fontWeight: 500, width: "28%" }}>Notes</th>
+            <th style={thStyle("18%")}>Date</th>
+            <th style={thStyle("12%")}>INR</th>
+            <th style={thStyle("14%")}>Dose</th>
+            <th style={thStyle("16%")}>Room</th>
+            <th style={thStyle("18%")}>In range</th>
+            <th style={thStyle("22%")}>Comments</th>
           </tr>
         </thead>
         <tbody>
-          {encounters.map((e, i) => (
-            <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
-              <td style={{ padding: "7px 8px" }}>{e.encounter_date}</td>
-              <td style={{ padding: "7px 8px" }}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "—"}</td>
-              <td style={{ padding: "7px 8px", color: "var(--text-secondary)" }}>{e.next_appt_date ?? "—"}</td>
-              <td style={{ padding: "7px 8px", color: "var(--text-secondary)", fontSize: 11 }}>
-                {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "…" : "") : ""}
-              </td>
-            </tr>
-          ))}
+          {encounters.map((e, i) => {
+            const bar = inRangeBarFor(e.encounter_date);
+            return (
+              <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
+                <td style={tdStyle}>{e.encounter_date}</td>
+                <td style={tdStyle}>{bar ? bar.value : "\u2014"}</td>
+                <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "\u2014"}</td>
+                <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "\u2014"}</td>
+                <td style={tdStyle}>
+                  {bar ? (
+                    <div style={{ background: "var(--surface-1)", borderRadius: 3, height: 8, width: "100%", overflow: "hidden" }}>
+                      <div style={{ background: bar.color, height: "100%", width: `${bar.pct}%` }} />
+                    </div>
+                  ) : (
+                    "\u2014"
+                  )}
+                </td>
+                <td style={{ ...tdStyle, color: "var(--text-secondary)", fontSize: 11 }}>
+                  {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "\u2026" : "") : ""}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
+
+function thStyle(width: string): React.CSSProperties {
+  return { textAlign: "left", padding: "7px 8px", color: "var(--text-secondary)", fontWeight: 500, width };
+}
+const tdStyle: React.CSSProperties = { padding: "7px 8px" };
 
 function LabsView({ inrLabs, creatinineLabs }: { inrLabs: LabResult[]; creatinineLabs: LabResult[] }) {
   const all = [...inrLabs, ...creatinineLabs].sort((a, b) => b.test_date.localeCompare(a.test_date));
@@ -305,25 +443,25 @@ function LabsView({ inrLabs, creatinineLabs }: { inrLabs: LabResult[]; creatinin
           fontSize: 13,
         }}
       >
-        Paste a lab screenshot here to auto-fill results — not wired up yet, pending AI pipeline approval
+        Paste a lab screenshot here to auto-fill results \u2014 not wired up yet, pending AI pipeline approval
       </div>
       <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
-              <th style={{ textAlign: "left", padding: "8px 10px", color: "var(--text-secondary)", fontWeight: 500, width: "22%" }}>Date</th>
-              <th style={{ textAlign: "left", padding: "8px 10px", color: "var(--text-secondary)", fontWeight: 500, width: "30%" }}>Test</th>
-              <th style={{ textAlign: "left", padding: "8px 10px", color: "var(--text-secondary)", fontWeight: 500, width: "20%" }}>Value</th>
-              <th style={{ textAlign: "left", padding: "8px 10px", color: "var(--text-secondary)", fontWeight: 500, width: "28%" }}>Source</th>
+              <th style={thStyle("22%")}>Date</th>
+              <th style={thStyle("30%")}>Test</th>
+              <th style={thStyle("20%")}>Value</th>
+              <th style={thStyle("28%")}>Source</th>
             </tr>
           </thead>
           <tbody>
             {all.map((l) => (
               <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                <td style={{ padding: "8px 10px" }}>{l.test_date}</td>
-                <td style={{ padding: "8px 10px" }}>{l.test_name}</td>
-                <td style={{ padding: "8px 10px" }}>{l.result_value} {l.unit}</td>
-                <td style={{ padding: "8px 10px", color: "var(--text-secondary)" }}>{l.source}</td>
+                <td style={tdStyle}>{l.test_date}</td>
+                <td style={tdStyle}>{l.test_name}</td>
+                <td style={tdStyle}>{l.result_value} {l.unit}</td>
+                <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
               </tr>
             ))}
           </tbody>
@@ -338,7 +476,10 @@ function NotesView({ encounters }: { encounters: Encounter[] }) {
     <div>
       {encounters.map((e) => (
         <div key={e.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "0.5px solid var(--border)" }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px", fontWeight: 500 }}>{e.encounter_date}</p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px", fontWeight: 500 }}>
+            {e.encounter_date}
+            {e.room ? ` \u00b7 ${e.room}` : ""}
+          </p>
           <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0 }}>{e.notes || "No notes recorded for this visit."}</p>
         </div>
       ))}

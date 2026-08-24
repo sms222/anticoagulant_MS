@@ -75,7 +75,12 @@ export default async function Home() {
         </div>
       )}
 
-      <p style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>All active patients</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>All active patients</p>
+        <Link href="/patients/new" style={{ fontSize: 13, color: "var(--text-accent)", textDecoration: "none" }}>
+          + Add patient
+        </Link>
+      </div>
       <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
         {patients.map((p, i) => (
           <Link
