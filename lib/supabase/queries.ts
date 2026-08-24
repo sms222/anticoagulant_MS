@@ -1,5 +1,14 @@
 import { createServerClient } from "./server";
-import type { Patient, Encounter, LabResult, ScoringResult } from "@/lib/types";
+import type {
+  Patient,
+  Encounter,
+  LabResult,
+  ScoringResult,
+  ClinicalEvent,
+  Medication,
+  Reminder,
+  PatientDocument,
+} from "@/lib/types";
 
 export async function getPatient(id: string): Promise<Patient | null> {
   const supabase = createServerClient();
@@ -70,6 +79,52 @@ export async function getTodaysAppointments() {
     .order("scheduled_time", { ascending: true });
   if (error) return [];
   return (data ?? []) as any[];
+}
+
+export async function getClinicalEvents(patientId: string): Promise<ClinicalEvent[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("clinical_events")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("event_date", { ascending: false });
+  if (error) return [];
+  return data as ClinicalEvent[];
+}
+
+export async function getMedications(patientId: string): Promise<Medication[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("medications")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("active", { ascending: false })
+    .order("start_date", { ascending: false });
+  if (error) return [];
+  return data as Medication[];
+}
+
+export async function getReminders(patientId: string): Promise<Reminder[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("reminders")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("completed", { ascending: true })
+    .order("due_date", { ascending: true, nullsFirst: false });
+  if (error) return [];
+  return data as Reminder[];
+}
+
+export async function getPatientDocuments(patientId: string): Promise<PatientDocument[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("patient_documents")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("added_at", { ascending: false });
+  if (error) return [];
+  return data as PatientDocument[];
 }
 
 export async function getAllPatients(): Promise<Patient[]> {

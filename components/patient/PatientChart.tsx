@@ -1,9 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import type { Patient, Encounter, LabResult, ScoringResult } from "@/lib/types";
-import { calculateAge, isWarfarin } from "@/lib/types";
+import type {
+  Patient,
+  Encounter,
+  LabResult,
+  ScoringResult,
+  ClinicalEvent,
+  Medication,
+  Reminder,
+  PatientDocument,
+} from "@/lib/types";
+import { calculateAge, isWarfarin, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import {
   calculateRosendaalTTR,
   calculatePINRR,
@@ -13,8 +22,21 @@ import {
   calculateInrVariability,
   calculateExtremeValueRate,
 } from "@/lib/calculators/inr-variability";
+import {
+  updateEmergencyContact,
+  addMedication,
+  discontinueMedication,
+  deleteMedication,
+  addClinicalEvent,
+  deleteClinicalEvent,
+  addReminder,
+  toggleReminder,
+  deleteReminder,
+  addPatientDocument,
+  deletePatientDocument,
+} from "@/app/actions/clinical";
 
-type TopTab = "dosing" | "labs";
+type TopTab = "dosing" | "labs" | "contacts" | "drugs" | "events" | "reminders" | "documents";
 type SubTab = "metrics" | "graph" | "history" | "notes";
 
 const riskColors: Record<string, { bg: string; text: string }> = {
@@ -29,12 +51,20 @@ export function PatientChart({
   inrLabs,
   creatinineLabs,
   hasBledResults,
+  clinicalEvents,
+  medications,
+  reminders,
+  documents,
 }: {
   patient: Patient;
   encounters: Encounter[];
   inrLabs: LabResult[];
   creatinineLabs: LabResult[];
   hasBledResults: ScoringResult[];
+  clinicalEvents: ClinicalEvent[];
+  medications: Medication[];
+  reminders: Reminder[];
+  documents: PatientDocument[];
 }) {
   const [topTab, setTopTab] = useState<TopTab>("dosing");
   const [subTab, setSubTab] = useState<SubTab>("metrics");
@@ -161,6 +191,11 @@ export function PatientChart({
             </>
           )}
           {topTab === "labs" && <LabsView inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
+          {topTab === "contacts" && <ContactsView patientId={patient.id} value={patient.emergency_contact_info} />}
+          {topTab === "drugs" && <DrugsView patientId={patient.id} medications={medications} />}
+          {topTab === "events" && <EventsView patientId={patient.id} events={clinicalEvents} />}
+          {topTab === "reminders" && <RemindersView patientId={patient.id} reminders={reminders} />}
+          {topTab === "documents" && <DocumentsView patientId={patient.id} documents={documents} />}
         </div>
       </div>
 
@@ -201,13 +236,21 @@ function SidebarField({ label, value }: { label: string; value: string }) {
 }
 
 function TopTabBar({ topTab, setTopTab }: { topTab: TopTab; setTopTab: (t: TopTab) => void }) {
-  const placeholders = ["Contacts", "Drugs", "Events", "Reminders", "Documents"];
+  const tabs: { key: TopTab; label: string }[] = [
+    { key: "dosing", label: "Dosing" },
+    { key: "labs", label: "Labs" },
+    { key: "contacts", label: "Contacts" },
+    { key: "drugs", label: "Drugs" },
+    { key: "events", label: "Events" },
+    { key: "reminders", label: "Reminders" },
+    { key: "documents", label: "Documents" },
+  ];
   return (
     <div style={{ display: "flex", gap: 16, borderBottom: "0.5px solid var(--border)", marginBottom: 14, fontSize: 13, flexWrap: "wrap" }}>
-      <span onClick={() => setTopTab("dosing")} style={tabStyle(topTab === "dosing")}>Dosing</span>
-      <span onClick={() => setTopTab("labs")} style={tabStyle(topTab === "labs")}>Labs</span>
-      {placeholders.map((p) => (
-        <span key={p} style={{ paddingBottom: 8, color: "var(--text-muted)" }}>{p}</span>
+      {tabs.map((t) => (
+        <span key={t.key} onClick={() => setTopTab(t.key)} style={tabStyle(topTab === t.key)}>
+          {t.label}
+        </span>
       ))}
     </div>
   );
@@ -483,6 +526,504 @@ function NotesView({ encounters }: { encounters: Encounter[] }) {
           <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0 }}>{e.notes || "No notes recorded for this visit."}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared small UI bits for the newly wired tabs
+// ---------------------------------------------------------------------------
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  fontSize: 13,
+  padding: "6px 8px",
+  border: "0.5px solid var(--border-strong)",
+  borderRadius: "var(--radius)",
+  background: "var(--surface-0)",
+  color: "var(--text-primary)",
+};
+
+const labelStyle: React.CSSProperties = { fontSize: 11, color: "var(--text-muted)", display: "block", margin: "0 0 3px" };
+
+function FieldWrap({ children, width }: { children: React.ReactNode; width?: number | string }) {
+  return <div style={{ marginBottom: 10, width: width ?? "100%" }}>{children}</div>;
+}
+
+function SmallButton({
+  children,
+  variant = "default",
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "default" | "danger" }) {
+  return (
+    <button
+      {...rest}
+      style={{
+        fontSize: 12,
+        padding: "4px 10px",
+        border: "none",
+        borderRadius: "var(--radius)",
+        cursor: "pointer",
+        background: variant === "danger" ? "var(--bg-danger)" : "var(--surface-1)",
+        color: variant === "danger" ? "var(--text-danger)" : "var(--text-primary)",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 16px" }}>{text}</p>;
+}
+
+// ---------------------------------------------------------------------------
+// Contacts — free text, prewritten next-of-kin / phone / email template
+// ---------------------------------------------------------------------------
+function ContactsView({ patientId, value }: { patientId: string; value: string | null }) {
+  const [isPending, startTransition] = useTransition();
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const boundAction = updateEmergencyContact.bind(null, patientId);
+
+  return (
+    <form
+      action={(formData) => {
+        startTransition(async () => {
+          await boundAction(formData);
+          setSavedAt(Date.now());
+        });
+      }}
+    >
+      <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>
+        Next of kin and other emergency contact details. Free text \u2014 edit the template below as needed.
+      </p>
+      <textarea
+        name="emergency_contact_info"
+        defaultValue={value ?? EMERGENCY_CONTACT_TEMPLATE}
+        rows={10}
+        style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.6, resize: "vertical" }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+        <SmallButton type="submit" disabled={isPending}>
+          {isPending ? "Saving\u2026" : "Save contact info"}
+        </SmallButton>
+        {savedAt && !isPending && (
+          <span style={{ fontSize: 12, color: "var(--text-success)" }}>Saved</span>
+        )}
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drugs — structured concomitant medication list
+// ---------------------------------------------------------------------------
+function DrugsView({ patientId, medications }: { patientId: string; medications: Medication[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const boundAdd = addMedication.bind(null, patientId);
+  const active = medications.filter((m) => m.active);
+  const past = medications.filter((m) => !m.active);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "+ Add medication"}</SmallButton>
+      </div>
+
+      {showForm && (
+        <form
+          action={async (fd) => {
+            await boundAdd(fd);
+            setShowForm(false);
+          }}
+          style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
+        >
+          <div style={{ display: "flex", gap: 10 }}>
+            <FieldWrap>
+              <label style={labelStyle}>Drug name</label>
+              <input name="drug_name" required style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap width={110}>
+              <label style={labelStyle}>Dose</label>
+              <input name="dose" required placeholder="e.g. 5mg" style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap width={110}>
+              <label style={labelStyle}>Frequency</label>
+              <input name="frequency" required placeholder="e.g. OD" style={inputStyle} />
+            </FieldWrap>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <FieldWrap width={130}>
+              <label style={labelStyle}>Route</label>
+              <input name="route" placeholder="oral" style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap>
+              <label style={labelStyle}>Indication</label>
+              <input name="indication" style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap width={140}>
+              <label style={labelStyle}>Start date</label>
+              <input name="start_date" type="date" style={inputStyle} />
+            </FieldWrap>
+          </div>
+          <FieldWrap>
+            <label style={labelStyle}>Notes</label>
+            <input name="notes" style={inputStyle} />
+          </FieldWrap>
+          <SmallButton type="submit">Save medication</SmallButton>
+        </form>
+      )}
+
+      <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px" }}>Active</p>
+      {active.length === 0 ? (
+        <EmptyState text="No concomitant medications recorded." />
+      ) : (
+        active.map((m) => <MedicationRow key={m.id} patientId={patientId} medication={m} />)
+      )}
+
+      {past.length > 0 && (
+        <>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>Discontinued</p>
+          {past.map((m) => (
+            <MedicationRow key={m.id} patientId={patientId} medication={m} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MedicationRow({ patientId, medication }: { patientId: string; medication: Medication }) {
+  const boundDiscontinue = discontinueMedication.bind(null, patientId, medication.id);
+  const boundDelete = deleteMedication.bind(null, patientId, medication.id);
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "8px 10px",
+        border: "0.5px solid var(--border)",
+        borderRadius: "var(--radius)",
+        marginBottom: 6,
+        opacity: medication.active ? 1 : 0.6,
+      }}
+    >
+      <div>
+        <p style={{ fontSize: 13, margin: 0 }}>
+          {medication.drug_name} <span style={{ color: "var(--text-secondary)" }}>{medication.dose} \u00b7 {medication.frequency}</span>
+          {medication.route ? <span style={{ color: "var(--text-muted)" }}> \u00b7 {medication.route}</span> : null}
+        </p>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
+          {medication.indication ? `${medication.indication} \u00b7 ` : ""}
+          from {medication.start_date}
+          {medication.stop_date ? ` to ${medication.stop_date}` : ""}
+        </p>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        {medication.active && (
+          <form action={boundDiscontinue}>
+            <SmallButton type="submit">Discontinue</SmallButton>
+          </form>
+        )}
+        <form action={boundDelete}>
+          <SmallButton type="submit" variant="danger">Delete</SmallButton>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Events — wired to the clinical_events table (bleeding / clotting / hosp.)
+// ---------------------------------------------------------------------------
+const eventTypeColors: Record<string, { bg: string; text: string }> = {
+  bleeding: { bg: "var(--bg-danger)", text: "var(--text-danger)" },
+  clotting: { bg: "var(--bg-warning)", text: "var(--text-warning)" },
+  hospitalization: { bg: "var(--bg-warning)", text: "var(--text-warning)" },
+  other: { bg: "var(--surface-1)", text: "var(--text-secondary)" },
+};
+
+function EventsView({ patientId, events }: { patientId: string; events: ClinicalEvent[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const [eventType, setEventType] = useState("bleeding");
+  const boundAdd = addClinicalEvent.bind(null, patientId);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "+ Add event"}</SmallButton>
+      </div>
+
+      {showForm && (
+        <form
+          action={async (fd) => {
+            await boundAdd(fd);
+            setShowForm(false);
+          }}
+          style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
+        >
+          <div style={{ display: "flex", gap: 10 }}>
+            <FieldWrap width={160}>
+              <label style={labelStyle}>Event type</label>
+              <select
+                name="event_type"
+                value={eventType}
+                onChange={(e) => setEventType(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="bleeding">Bleeding</option>
+                <option value="clotting">Clotting</option>
+                <option value="hospitalization">Hospitalization</option>
+                <option value="other">Other</option>
+              </select>
+            </FieldWrap>
+            {eventType === "bleeding" && (
+              <FieldWrap width={160}>
+                <label style={labelStyle}>Severity (ISTH)</label>
+                <select name="bleeding_severity" defaultValue="minor" style={inputStyle}>
+                  <option value="major">Major</option>
+                  <option value="crnm">CRNM</option>
+                  <option value="minor">Minor</option>
+                </select>
+              </FieldWrap>
+            )}
+            <FieldWrap width={140}>
+              <label style={labelStyle}>Date</label>
+              <input name="event_date" type="date" style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap width={110}>
+              <label style={labelStyle}>INR at event</label>
+              <input name="inr_at_event" type="number" step="0.1" style={inputStyle} />
+            </FieldWrap>
+          </div>
+          <FieldWrap>
+            <label style={labelStyle}>Description</label>
+            <input name="description" required style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap>
+            <label style={labelStyle}>Outcome</label>
+            <input name="outcome" style={inputStyle} />
+          </FieldWrap>
+          <SmallButton type="submit">Save event</SmallButton>
+        </form>
+      )}
+
+      {events.length === 0 ? (
+        <EmptyState text="No bleeding, clotting, or hospitalization events recorded." />
+      ) : (
+        events.map((ev) => {
+          const colors = eventTypeColors[ev.event_type];
+          const boundDelete = deleteClinicalEvent.bind(null, patientId, ev.id);
+          return (
+            <div
+              key={ev.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                padding: "8px 10px",
+                border: "0.5px solid var(--border)",
+                borderRadius: "var(--radius)",
+                marginBottom: 6,
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                  <span
+                    style={{
+                      background: colors.bg,
+                      color: colors.text,
+                      fontSize: 11,
+                      padding: "1px 7px",
+                      borderRadius: "var(--radius)",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {ev.event_type}
+                    {ev.bleeding_severity ? ` \u00b7 ${ev.bleeding_severity.toUpperCase()}` : ""}
+                  </span>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{ev.event_date}</span>
+                  {ev.inr_at_event != null && (
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>INR {ev.inr_at_event}</span>
+                  )}
+                </div>
+                <p style={{ fontSize: 13, margin: 0 }}>{ev.description}</p>
+                {ev.outcome && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>Outcome: {ev.outcome}</p>}
+              </div>
+              <form action={boundDelete}>
+                <SmallButton type="submit" variant="danger">Delete</SmallButton>
+              </form>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reminders — freeform per-patient task list
+// ---------------------------------------------------------------------------
+function RemindersView({ patientId, reminders }: { patientId: string; reminders: Reminder[] }) {
+  const boundAdd = addReminder.bind(null, patientId);
+  const open = reminders.filter((r) => !r.completed);
+  const done = reminders.filter((r) => r.completed);
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div>
+      <form
+        action={boundAdd}
+        style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "flex-end" }}
+      >
+        <FieldWrap>
+          <label style={labelStyle}>Task</label>
+          <input name="task" required placeholder="e.g. Call about missed dose" style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap width={150}>
+          <label style={labelStyle}>Due date</label>
+          <input name="due_date" type="date" style={inputStyle} />
+        </FieldWrap>
+        <div style={{ marginBottom: 10 }}>
+          <SmallButton type="submit">Add</SmallButton>
+        </div>
+      </form>
+
+      {open.length === 0 ? (
+        <EmptyState text="No open reminders." />
+      ) : (
+        open.map((r) => <ReminderRow key={r.id} patientId={patientId} reminder={r} overdue={!!r.due_date && r.due_date < today} />)
+      )}
+
+      {done.length > 0 && (
+        <>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>Completed</p>
+          {done.map((r) => (
+            <ReminderRow key={r.id} patientId={patientId} reminder={r} overdue={false} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReminderRow({ patientId, reminder, overdue }: { patientId: string; reminder: Reminder; overdue: boolean }) {
+  const boundToggle = toggleReminder.bind(null, patientId, reminder.id, !reminder.completed);
+  const boundDelete = deleteReminder.bind(null, patientId, reminder.id);
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "7px 10px",
+        border: "0.5px solid var(--border)",
+        borderRadius: "var(--radius)",
+        marginBottom: 6,
+        opacity: reminder.completed ? 0.6 : 1,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <form action={boundToggle}>
+          <button
+            type="submit"
+            title={reminder.completed ? "Mark as open" : "Mark as done"}
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: 4,
+              border: "1.5px solid var(--border-strong)",
+              background: reminder.completed ? "var(--text-accent)" : "transparent",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          />
+        </form>
+        <div>
+          <p style={{ fontSize: 13, margin: 0, textDecoration: reminder.completed ? "line-through" : "none" }}>{reminder.task}</p>
+          {reminder.due_date && (
+            <p style={{ fontSize: 11, margin: "1px 0 0", color: overdue ? "var(--text-danger)" : "var(--text-muted)" }}>
+              Due {reminder.due_date}{overdue ? " \u00b7 overdue" : ""}
+            </p>
+          )}
+        </div>
+      </div>
+      <form action={boundDelete}>
+        <SmallButton type="submit" variant="danger">Delete</SmallButton>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Documents — link/metadata list. No file bytes stored; see handover notes
+// on why real upload is deferred (Supabase Storage + governance sign-off).
+// ---------------------------------------------------------------------------
+function DocumentsView({ patientId, documents }: { patientId: string; documents: PatientDocument[] }) {
+  const boundAdd = addPatientDocument.bind(null, patientId);
+
+  return (
+    <div>
+      <div
+        style={{
+          border: "1.5px dashed var(--border-strong)",
+          borderRadius: 12,
+          padding: "0.9rem 1rem",
+          marginBottom: 16,
+          color: "var(--text-secondary)",
+          fontSize: 12,
+        }}
+      >
+        This stores links, not files \u2014 actual file upload needs a Supabase Storage bucket and the same
+        governance sign-off as the AI pipeline. Paste a link to where the document already lives (e.g. hospital
+        EMR, shared drive).
+      </div>
+
+      <form action={boundAdd} style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "flex-end" }}>
+        <FieldWrap width={220}>
+          <label style={labelStyle}>Label</label>
+          <input name="label" required placeholder="e.g. Discharge summary" style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap>
+          <label style={labelStyle}>Link</label>
+          <input name="url" type="url" required placeholder="https://\u2026" style={inputStyle} />
+        </FieldWrap>
+        <div style={{ marginBottom: 10 }}>
+          <SmallButton type="submit">Add</SmallButton>
+        </div>
+      </form>
+
+      {documents.length === 0 ? (
+        <EmptyState text="No document links added." />
+      ) : (
+        documents.map((d) => {
+          const boundDelete = deletePatientDocument.bind(null, patientId, d.id);
+          return (
+            <div
+              key={d.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "7px 10px",
+                border: "0.5px solid var(--border)",
+                borderRadius: "var(--radius)",
+                marginBottom: 6,
+              }}
+            >
+              <div>
+                <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--text-accent)" }}>
+                  {d.label}
+                </a>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Added {d.added_at.slice(0, 10)}</p>
+              </div>
+              <form action={boundDelete}>
+                <SmallButton type="submit" variant="danger">Delete</SmallButton>
+              </form>
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }

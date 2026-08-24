@@ -1,4 +1,13 @@
-import { getPatient, getEncounters, getLabResults, getScoringResults } from "@/lib/supabase/queries";
+import {
+  getPatient,
+  getEncounters,
+  getLabResults,
+  getScoringResults,
+  getClinicalEvents,
+  getMedications,
+  getReminders,
+  getPatientDocuments,
+} from "@/lib/supabase/queries";
 import { PatientChart } from "@/components/patient/PatientChart";
 import { notFound } from "next/navigation";
 
@@ -9,12 +18,17 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
   const patient = await getPatient(id);
   if (!patient) notFound();
 
-  const [encounters, inrLabs, creatinineLabs, hasBledResults] = await Promise.all([
-    getEncounters(patient.id),
-    getLabResults(patient.id, "INR"),
-    getLabResults(patient.id, "Serum creatinine"),
-    getScoringResults(patient.id, "HAS-BLED"),
-  ]);
+  const [encounters, inrLabs, creatinineLabs, hasBledResults, clinicalEvents, medications, reminders, documents] =
+    await Promise.all([
+      getEncounters(patient.id),
+      getLabResults(patient.id, "INR"),
+      getLabResults(patient.id, "Serum creatinine"),
+      getScoringResults(patient.id, "HAS-BLED"),
+      getClinicalEvents(patient.id),
+      getMedications(patient.id),
+      getReminders(patient.id),
+      getPatientDocuments(patient.id),
+    ]);
 
   return (
     <main style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
@@ -24,6 +38,10 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
         inrLabs={inrLabs}
         creatinineLabs={creatinineLabs}
         hasBledResults={hasBledResults}
+        clinicalEvents={clinicalEvents}
+        medications={medications}
+        reminders={reminders}
+        documents={documents}
       />
     </main>
   );

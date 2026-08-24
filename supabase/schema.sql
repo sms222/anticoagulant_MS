@@ -25,6 +25,8 @@ create type lab_source as enum ('manual', 'ems_screenshot_ai', 'ems_screenshot_m
 create type adherence_phase as enum ('initiation', 'implementation', 'persistence'); -- ABC taxonomy, Vrijens et al. 2012
 create type app_role as enum ('pharmacist', 'developer');
 create type note_type as enum ('phone_call', 'sms_whatsapp', 'in_person', 'missed_appt', 'other');
+create type risk_class as enum ('low', 'medium', 'high');
+create type appointment_status as enum ('waiting', 'in_progress', 'completed', 'no_show', 'cancelled');
 
 -- ---------------------------------------------------------------------------
 -- 1. USERS / STAFF (extends Supabase auth.users)
@@ -35,6 +37,24 @@ create table profiles (
   role app_role not null default 'pharmacist',
   created_at timestamptz not null default now()
 );
+
+-- New signups auto-get a profiles row (self-service signup, RLS checks against
+-- this table). Fires after insert on auth.users.
+create function handle_new_user() returns trigger as $$
+begin
+  insert into public.profiles (id, full_name, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    'pharmacist'
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function handle_new_user();
 
 -- ---------------------------------------------------------------------------
 -- 2. PATIENTS
@@ -58,7 +78,11 @@ create table patients (
   education_status text,                        -- free text or coded, TBD
   notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  phone text,
+  address text,
+  risk_class risk_class,
+  emergency_contact_info text                    -- free text: next of kin, phone, email (Contacts tab)
 );
 
 create index idx_patients_status on patients(status);
@@ -87,7 +111,10 @@ create table encounters (
   audio_transcript text,
   ai_soap_note jsonb,
   ai_pipeline_used boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  room text,
+  visit_start_time time,
+  visit_end_time time
 );
 
 create index idx_encounters_patient on encounters(patient_id, encounter_date desc);
@@ -203,7 +230,77 @@ create table contact_log (
 create index idx_contact_log_patient on contact_log(patient_id, note_date desc);
 
 -- ---------------------------------------------------------------------------
--- 10. AUDIT LOG (who changed what, when — needed given clinical data + RLS)
+-- 10a. APPOINTMENTS (today's clinic queue — home page)
+-- ---------------------------------------------------------------------------
+create table appointments (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  encounter_id uuid references encounters(id) on delete set null,
+  scheduled_date date not null,
+  scheduled_time time not null,
+  room text,
+  status appointment_status not null default 'waiting',
+  checked_in_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index idx_appointments_date on appointments(scheduled_date, scheduled_time);
+
+-- ---------------------------------------------------------------------------
+-- 10b. MEDICATIONS (Drugs tab — structured concomitant medication list)
+-- ---------------------------------------------------------------------------
+create table medications (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  drug_name text not null,
+  dose text not null,               -- free text, e.g. '500mg' — pharmacy dosing isn't always a clean number
+  frequency text not null,          -- free text, e.g. 'OD','BD','PRN'
+  route text,
+  indication text,
+  start_date date not null default current_date,
+  stop_date date,                   -- null = still active
+  active boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index idx_medications_patient on medications(patient_id, active);
+
+-- ---------------------------------------------------------------------------
+-- 10c. REMINDERS (Reminders tab — freeform per-patient task list)
+-- ---------------------------------------------------------------------------
+create table reminders (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  task text not null,
+  due_date date,
+  completed boolean not null default false,
+  completed_at timestamptz,
+  created_by uuid references profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_reminders_patient on reminders(patient_id, completed, due_date);
+
+-- ---------------------------------------------------------------------------
+-- 10d. PATIENT DOCUMENTS (Documents tab — link/metadata list, no file bytes;
+--      real upload needs Supabase Storage + the same governance sign-off as
+--      the AI pipeline, see §6 in HANDOVER.md)
+-- ---------------------------------------------------------------------------
+create table patient_documents (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  label text not null,
+  url text not null,
+  added_by uuid references profiles(id),
+  added_at timestamptz not null default now()
+);
+
+create index idx_patient_documents_patient on patient_documents(patient_id, added_at desc);
+
+-- ---------------------------------------------------------------------------
+-- 11. AUDIT LOG (who changed what, when — needed given clinical data + RLS)
 -- ---------------------------------------------------------------------------
 create table audit_log (
   id uuid primary key default gen_random_uuid(),
@@ -228,6 +325,10 @@ alter table scoring_tool_results enable row level security;
 alter table scoring_tool_definitions enable row level security;
 alter table contact_log enable row level security;
 alter table audit_log enable row level security;
+alter table appointments enable row level security;
+alter table medications enable row level security;
+alter table reminders enable row level security;
+alter table patient_documents enable row level security;
 
 -- All authenticated staff (pharmacist or developer) can read/write clinical
 -- tables. Tighten later to per-clinic-team if you ever run multiple sites.
@@ -270,6 +371,22 @@ create policy staff_full_access on contact_log for all
 -- Audit log: developer role only (pharmacists shouldn't see/edit the audit trail)
 create policy developer_only_audit on audit_log for select
   using (exists (select 1 from profiles where id = auth.uid() and role = 'developer'));
+
+create policy staff_full_access on appointments for all
+  using (exists (select 1 from profiles where id = auth.uid()))
+  with check (exists (select 1 from profiles where id = auth.uid()));
+
+create policy staff_full_access on medications for all
+  using (exists (select 1 from profiles where id = auth.uid()))
+  with check (exists (select 1 from profiles where id = auth.uid()));
+
+create policy staff_full_access on reminders for all
+  using (exists (select 1 from profiles where id = auth.uid()))
+  with check (exists (select 1 from profiles where id = auth.uid()));
+
+create policy staff_full_access on patient_documents for all
+  using (exists (select 1 from profiles where id = auth.uid()))
+  with check (exists (select 1 from profiles where id = auth.uid()));
 
 -- ============================================================================
 -- SEED: scoring tool definitions (fill in exact horizons/citations later)

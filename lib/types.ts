@@ -26,6 +26,7 @@ export interface Patient {
   phone: string | null;
   address: string | null;
   risk_class: "low" | "medium" | "high" | null;
+  emergency_contact_info: string | null;
 }
 
 export interface Encounter {
@@ -57,6 +58,60 @@ export interface ScoringResult {
   score_value: number;
   tool_name: string;
 }
+
+export interface ClinicalEvent {
+  id: string;
+  patient_id: string;
+  event_type: "bleeding" | "clotting" | "hospitalization" | "other";
+  bleeding_severity: "major" | "crnm" | "minor" | null;
+  event_date: string;
+  description: string;
+  inr_at_event: number | null;
+  outcome: string | null;
+}
+
+export interface Medication {
+  id: string;
+  patient_id: string;
+  drug_name: string;
+  dose: string;
+  frequency: string;
+  route: string | null;
+  indication: string | null;
+  start_date: string;
+  stop_date: string | null;
+  active: boolean;
+  notes: string | null;
+}
+
+export interface Reminder {
+  id: string;
+  patient_id: string;
+  task: string;
+  due_date: string | null;
+  completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface PatientDocument {
+  id: string;
+  patient_id: string;
+  label: string;
+  url: string;
+  added_at: string;
+}
+
+export const EMERGENCY_CONTACT_TEMPLATE = `Next of kin:
+Relationship:
+Phone:
+Alternate phone:
+Email:
+
+Secondary contact:
+Relationship:
+Phone:
+`;
 
 export function isWarfarin(patient: Patient): boolean {
   return patient.anticoagulant_type === "warfarin";
