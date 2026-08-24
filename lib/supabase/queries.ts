@@ -60,6 +60,18 @@ export async function getScoringResults(
   }));
 }
 
+export async function getTodaysAppointments() {
+  const supabase = createServerClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id, scheduled_time, room, status, patient_id, patients(name, anticoagulant_type)")
+    .eq("scheduled_date", today)
+    .order("scheduled_time", { ascending: true });
+  if (error) return [];
+  return (data ?? []) as any[];
+}
+
 export async function getAllPatients(): Promise<Patient[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase

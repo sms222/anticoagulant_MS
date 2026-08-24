@@ -1,17 +1,81 @@
-import { getAllPatients } from "@/lib/supabase/queries";
+import { getTodaysAppointments, getAllPatients } from "@/lib/supabase/queries";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+const statusStyle: Record<string, { bg: string; text: string; label: string }> = {
+  waiting: { bg: "var(--bg-warning)", text: "var(--text-warning)", label: "Waiting" },
+  in_progress: { bg: "var(--bg-accent)", text: "var(--text-accent)", label: "In progress" },
+  completed: { bg: "var(--bg-success)", text: "var(--text-success)", label: "Completed" },
+  no_show: { bg: "var(--bg-danger)", text: "var(--text-danger)", label: "No-show" },
+  cancelled: { bg: "var(--surface-1)", text: "var(--text-muted)", label: "Cancelled" },
+};
+
 export default async function Home() {
-  const patients = await getAllPatients();
+  const [appointments, patients] = await Promise.all([getTodaysAppointments(), getAllPatients()]);
+  const today = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <main style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>Anticoagulation Management System</h1>
-      <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
-        {patients.length} active patient{patients.length === 1 ? "" : "s"}
-      </p>
+      <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>ACMS</h1>
+      <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>{today}</p>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>Today's queue</p>
+        <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          {appointments.length} appointment{appointments.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {appointments.length === 0 ? (
+        <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 32 }}>
+          No appointments scheduled for today.
+        </p>
+      ) : (
+        <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", marginBottom: 32 }}>
+          {appointments.map((a, i) => {
+            const s = statusStyle[a.status] ?? statusStyle.waiting;
+            return (
+              <Link
+                key={a.id}
+                href={`/patients/${a.patient_id}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "12px 16px",
+                  borderBottom: i < appointments.length - 1 ? "0.5px solid var(--border)" : "none",
+                  textDecoration: "none",
+                  color: "inherit",
+                }}
+              >
+                <span style={{ fontSize: 13, color: "var(--text-secondary)", width: 56, flexShrink: 0 }}>
+                  {a.scheduled_time?.slice(0, 5)}
+                </span>
+                <span style={{ flex: 1 }}>{a.patients?.name}</span>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", width: 90 }}>
+                  {a.patients?.anticoagulant_type}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", width: 130 }}>{a.room}</span>
+                <span
+                  style={{
+                    background: s.bg,
+                    color: s.text,
+                    fontSize: 12,
+                    padding: "2px 10px",
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  {s.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      <p style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>All active patients</p>
       <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
         {patients.map((p, i) => (
           <Link
