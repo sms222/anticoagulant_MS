@@ -75,6 +75,8 @@ export interface TodaysAppointment {
   target_inr_low: number | null;
   target_inr_high: number | null;
   last_inr: number | null;
+  visit_started_at: string | null;
+  visit_elapsed_seconds: number;
 }
 
 export interface LabResult {
@@ -294,6 +296,16 @@ export const NOAC_DOSING: Record<string, NoacDosingReference> = {
     source: "Savaysa full prescribing information, DailyMed / FDA label",
     sourceUrl: "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=e77d3400-56ad-11e3-949a-0800200c9a66",
   },
+};
+
+// Frequency is intrinsic to the drug's approved regimen (only the mg amount
+// varies with renal function/age/weight) — used to label dose-group buckets
+// in reports without needing a separate frequency field on every patient.
+export const NOAC_FREQUENCY: Record<string, string> = {
+  rivaroxaban: "OD",
+  apixaban: "BD",
+  dabigatran: "BD",
+  edoxaban: "OD",
 };
 
 export function isWarfarin(patient: Patient): boolean {

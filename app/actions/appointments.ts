@@ -37,27 +37,56 @@ export async function checkInAppointment(appointmentId: string) {
   revalidatePath("/");
 }
 
+// Starting a visit begins (or resumes) its timer. A pharmacist can only have
+// one visit timer running at once — if they already have another appointment
+// "with_pharmacist", that one is paused first (its elapsed time so far is
+// banked in visit_elapsed_seconds, status drops back to checked_in so it's
+// still visible in the queue to resume later), rather than being force-ended.
 export async function startVisit(appointmentId: string, formData: FormData) {
   const supabase = createServerClient();
   const room = formData.get("room") as string;
-  const pharmacistId = formData.get("pharmacist_id") as string;
+  const pharmacistId = (formData.get("pharmacist_id") as string) || null;
+  const now = new Date();
+
+  if (pharmacistId) {
+    const { data: inProgress } = await supabase
+      .from("appointments")
+      .select("id, visit_started_at, visit_elapsed_seconds")
+      .eq("pharmacist_id", pharmacistId)
+      .eq("status", "with_pharmacist")
+      .neq("id", appointmentId);
+    for (const other of inProgress ?? []) {
+      const startedAt = other.visit_started_at ? new Date(other.visit_started_at) : null;
+      const ranSeconds = startedAt ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 1000)) : 0;
+      await supabase
+        .from("appointments")
+        .update({
+          status: "checked_in",
+          visit_started_at: null,
+          visit_elapsed_seconds: (other.visit_elapsed_seconds ?? 0) + ranSeconds,
+        })
+        .eq("id", other.id);
+    }
+  }
+
   const { error } = await supabase
     .from("appointments")
-    .update({ status: "with_pharmacist", room: room || null, pharmacist_id: pharmacistId || null })
+    .update({ status: "with_pharmacist", room: room || null, pharmacist_id: pharmacistId, visit_started_at: now.toISOString() })
     .eq("id", appointmentId);
   if (error) throw new Error("Could not start visit: " + error.message);
   revalidatePath("/");
 }
 
-// Marks the appointment completed and drops a minimal encounter row onto the
+// Marks the appointment completed, drops a minimal encounter row onto the
 // patient's chart (today's date, room, seen-by) so the visit shows up in
-// their History immediately. The pharmacist fills in dose/notes/labs from
-// the patient chart itself — this is just closing the loop on the queue.
+// their History immediately, and finalizes the visit timer for reporting.
+// The pharmacist fills in dose/notes/labs from the patient chart itself —
+// this is just closing the loop on the queue.
 export async function completeAppointment(appointmentId: string) {
   const supabase = createServerClient();
   const { data: appt, error: fetchError } = await supabase
     .from("appointments")
-    .select("patient_id, room, pharmacist_id, encounter_id")
+    .select("patient_id, room, pharmacist_id, encounter_id, visit_started_at, visit_elapsed_seconds")
     .eq("id", appointmentId)
     .single();
   if (fetchError || !appt) throw new Error("Could not find appointment: " + fetchError?.message);
@@ -85,9 +114,19 @@ export async function completeAppointment(appointmentId: string) {
     await supabase.from("appointments").update({ encounter_id: encounter?.id }).eq("id", appointmentId);
   }
 
+  const now = new Date();
+  const startedAt = appt.visit_started_at ? new Date(appt.visit_started_at) : null;
+  const ranSeconds = startedAt ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 1000)) : 0;
+  const totalDurationSeconds = (appt.visit_elapsed_seconds ?? 0) + ranSeconds;
+
   const { error } = await supabase
     .from("appointments")
-    .update({ status: "completed", completed_at: new Date().toISOString() })
+    .update({
+      status: "completed",
+      completed_at: now.toISOString(),
+      visit_started_at: null,
+      visit_duration_seconds: totalDurationSeconds,
+    })
     .eq("id", appointmentId);
   if (error) throw new Error("Could not mark appointment completed: " + error.message);
   revalidatePath("/");

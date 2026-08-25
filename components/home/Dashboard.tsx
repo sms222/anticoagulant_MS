@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { TodaysAppointment, Patient, FollowUpStatus, Pharmacist, AppointmentType } from "@/lib/types";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/types";
@@ -532,7 +532,11 @@ function AppointmentRow({ appt, pharmacists }: { appt: TodaysAppointment; pharma
             </form>
           </div>
         )}
-        {appt.status === "checked_in" && !showStartForm && <ActionButton onClick={() => setShowStartForm(true)}>Start Visit</ActionButton>}
+        {appt.status === "checked_in" && !showStartForm && (
+          <ActionButton onClick={() => setShowStartForm(true)}>
+            {appt.visit_elapsed_seconds > 0 ? `Resume Visit (${formatDuration(appt.visit_elapsed_seconds)} so far)` : "Start Visit"}
+          </ActionButton>
+        )}
         {appt.status === "checked_in" && showStartForm && (
           <form
             action={async (fd) => {
@@ -554,15 +558,57 @@ function AppointmentRow({ appt, pharmacists }: { appt: TodaysAppointment; pharma
           </form>
         )}
         {appt.status === "with_pharmacist" && (
-          <form action={boundComplete}>
-            <ActionButton>Mark Completed</ActionButton>
-          </form>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <VisitTimer startedAt={appt.visit_started_at} elapsedSeconds={appt.visit_elapsed_seconds} />
+            <form action={boundComplete}>
+              <ActionButton>Save &amp; End Visit</ActionButton>
+            </form>
+          </div>
         )}
         <Link href={`/patients/${appt.patient_id}`} style={{ fontSize: 11, color: "var(--text-accent)", marginLeft: 8, textDecoration: "none" }}>
           View Details
         </Link>
       </td>
     </tr>
+  );
+}
+
+function formatDuration(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// Client-side ticking clock — elapsed = banked seconds from any prior
+// pause/resume cycle + time since this run's visit_started_at. Only one of
+// these can be "with_pharmacist" per pharmacist at a time (enforced server-side
+// in startVisit), so there's never more than one ticking timer per pharmacist.
+function VisitTimer({ startedAt, elapsedSeconds }: { startedAt: string | null; elapsedSeconds: number }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  const ranSeconds = startedAt ? Math.max(0, Math.round((now - new Date(startedAt).getTime()) / 1000)) : 0;
+  const total = elapsedSeconds + ranSeconds;
+
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--text-accent)",
+        background: "var(--bg-accent)",
+        padding: "3px 8px",
+        borderRadius: 6,
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {formatDuration(total)}
+    </span>
   );
 }
 

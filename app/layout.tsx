@@ -94,11 +94,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </span>
           )}
           <span>
-            Developed by Shamin Mohd Saffian &middot; Any problems email{" "}
+            &copy; {new Date().getFullYear()} Shamin Mohd Saffian. All rights reserved. &middot; Support:{" "}
             <a href="mailto:shamin@ukm.edu.my" style={{ color: "var(--text-muted)" }}>
               shamin@ukm.edu.my
             </a>{" "}
-            &middot; Version 1.0
+            &middot; v1.0
           </span>
         </footer>
       </body>
