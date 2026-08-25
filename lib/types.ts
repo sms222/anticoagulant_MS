@@ -57,6 +57,7 @@ export interface ScoringResult {
   score_date: string;
   score_value: number;
   tool_name: string;
+  components: Record<string, unknown> | null;
 }
 
 export interface ClinicalEvent {

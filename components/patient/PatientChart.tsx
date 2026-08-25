@@ -17,16 +17,26 @@ import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE 
 import {
   calculateRosendaalTTR,
   calculatePINRR,
+  computeRollingTtr,
+  computeRollingPinrr,
   type InrReading,
   type TargetRangePeriod,
 } from "@/lib/calculators/rosendaal";
 import {
   calculateInrVariability,
   calculateExtremeValueRate,
+  computeRollingVariability,
 } from "@/lib/calculators/inr-variability";
 import {
   updateEmergencyContact,
   updateTargetInr,
+  updatePatientDetails,
+  addLabResult,
+  updateLabResult,
+  deleteLabResult,
+  addEncounter,
+  updateEncounter,
+  addHasBledAssessment,
   addMedication,
   discontinueMedication,
   deleteMedication,
@@ -38,6 +48,7 @@ import {
   addPatientDocument,
   deletePatientDocument,
 } from "@/app/actions/clinical";
+import { INDICATION_OPTIONS } from "@/lib/types";
 
 type TopTab = "dosing" | "labs" | "contacts" | "drugs" | "events" | "reminders" | "documents";
 type SubTab = "metrics" | "graph" | "history" | "notes";
@@ -133,44 +144,7 @@ export function PatientChart({
       </div>
 
       <div style={{ display: "flex" }}>
-        <div style={{ width: 180, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
-          {patient.risk_class && risk && (
-            <>
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px" }}>Risk class</p>
-              <span
-                style={{
-                  background: risk.bg,
-                  color: risk.text,
-                  fontSize: 12,
-                  padding: "2px 8px",
-                  borderRadius: "var(--radius)",
-                  display: "inline-block",
-                  marginBottom: 12,
-                  textTransform: "capitalize",
-                }}
-              >
-                {patient.risk_class}
-              </span>
-            </>
-          )}
-          <SidebarField label="Phone" value={patient.phone ?? "\u2014"} />
-          <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-            <SidebarField label="Age" value={age?.toString() ?? "\u2014"} />
-            <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "\u2014"} />
-            <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "\u2014"} />
-          </div>
-          <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
-            <SidebarField label="Diagnosis" value={formatIndication(patient.indication, patient.indication_detail)} />
-            {warfarin && (
-              <SidebarField
-                label="Target range"
-                value={`${patient.target_inr_low}\u2013${patient.target_inr_high}`}
-              />
-            )}
-            <SidebarField label="Anticoagulant" value={patient.anticoagulant_type} />
-            <SidebarField label="Start date" value={patient.intake_date} />
-          </div>
-        </div>
+        <PatientDetailsSidebar patient={patient} age={age} warfarin={warfarin} risk={risk} />
 
         <div style={{ flex: 1, padding: "14px 18px", minWidth: 0 }}>
           <TopTabBar topTab={topTab} setTopTab={setTopTab} />
@@ -191,18 +165,33 @@ export function PatientChart({
                   latestHasBled={latestHasBled}
                   latestCreatinine={latestCreatinine}
                   targetInrHistory={targetInrHistory}
+                  hasBledResults={hasBledResults}
                 />
               )}
               {subTab === "graph" && (
-                <GraphView warfarin={warfarin} inrLabs={inrLabs} creatinineLabs={creatinineLabs} hasBledResults={hasBledResults} />
+                <GraphView
+                  warfarin={warfarin}
+                  inrLabs={inrLabs}
+                  creatinineLabs={creatinineLabs}
+                  hasBledResults={hasBledResults}
+                  rollingTtr={warfarin ? computeRollingTtr(inrReadings, targetRanges) : []}
+                  rollingPinrr={warfarin ? computeRollingPinrr(inrReadings, targetRanges) : []}
+                  rollingVariability={warfarin ? computeRollingVariability(inrReadings) : []}
+                />
               )}
               {subTab === "history" && (
-                <HistoryView encounters={encounters} inrLabs={inrLabs} targetLow={patient.target_inr_low} targetHigh={patient.target_inr_high} />
+                <HistoryView
+                  patientId={patient.id}
+                  encounters={encounters}
+                  inrLabs={inrLabs}
+                  targetLow={patient.target_inr_low}
+                  targetHigh={patient.target_inr_high}
+                />
               )}
               {subTab === "notes" && <NotesView encounters={encounters} />}
             </>
           )}
-          {topTab === "labs" && <LabsView inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
+          {topTab === "labs" && <LabsView patientId={patient.id} inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
           {topTab === "contacts" && <ContactsView patientId={patient.id} value={patient.emergency_contact_info} />}
           {topTab === "drugs" && <DrugsView patientId={patient.id} medications={medications} />}
           {topTab === "events" && <EventsView patientId={patient.id} events={clinicalEvents} />}
@@ -218,21 +207,149 @@ export function PatientChart({
         <button style={{ fontSize: 13, padding: "6px 14px" }} onClick={handlePrint}>
           Print
         </button>
-        <button
-          disabled
-          title="Editing isn't wired up yet"
-          style={{
-            background: "var(--surface-1)",
-            color: "var(--text-muted)",
-            border: "none",
-            fontSize: 13,
-            padding: "6px 14px",
-            borderRadius: "var(--radius)",
-            cursor: "not-allowed",
+      </div>
+    </div>
+  );
+}
+
+function PatientDetailsSidebar({
+  patient,
+  age,
+  warfarin,
+  risk,
+}: {
+  patient: Patient;
+  age: number | null;
+  warfarin: boolean;
+  risk: { bg: string; text: string } | null;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [indication, setIndication] = useState(patient.indication);
+  const boundUpdate = updatePatientDetails.bind(null, patient.id);
+
+  if (editing) {
+    return (
+      <div style={{ width: 260, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
+        <form
+          action={async (fd) => {
+            await boundUpdate(fd);
+            setEditing(false);
           }}
         >
-          Save
+          <FieldWrap>
+            <label style={labelStyle}>Phone</label>
+            <input name="phone" defaultValue={patient.phone ?? ""} style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap>
+            <label style={labelStyle}>Address</label>
+            <input name="address" defaultValue={patient.address ?? ""} style={inputStyle} />
+          </FieldWrap>
+          <div style={{ display: "flex", gap: 8 }}>
+            <FieldWrap>
+              <label style={labelStyle}>Weight (kg)</label>
+              <input name="weight_kg" type="number" step="0.1" defaultValue={patient.weight_kg ?? ""} style={inputStyle} />
+            </FieldWrap>
+            <FieldWrap>
+              <label style={labelStyle}>Height (cm)</label>
+              <input name="height_cm" type="number" step="0.1" defaultValue={patient.height_cm ?? ""} style={inputStyle} />
+            </FieldWrap>
+          </div>
+          <FieldWrap>
+            <label style={labelStyle}>Indication</label>
+            <select name="indication" value={indication} onChange={(e) => setIndication(e.target.value)} style={inputStyle}>
+              {INDICATION_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </FieldWrap>
+          {indication === "other" && (
+            <FieldWrap>
+              <label style={labelStyle}>Indication (free text)</label>
+              <input name="indication_detail" defaultValue={patient.indication_detail ?? ""} style={inputStyle} />
+            </FieldWrap>
+          )}
+          <FieldWrap>
+            <label style={labelStyle}>Anticoagulant</label>
+            <select name="anticoagulant_type" defaultValue={patient.anticoagulant_type} style={inputStyle}>
+              <option value="warfarin">Warfarin</option>
+              <option value="rivaroxaban">Rivaroxaban</option>
+              <option value="apixaban">Apixaban</option>
+              <option value="dabigatran">Dabigatran</option>
+              <option value="edoxaban">Edoxaban</option>
+              <option value="other">Other</option>
+            </select>
+          </FieldWrap>
+          <FieldWrap>
+            <label style={labelStyle}>Risk class</label>
+            <select name="risk_class" defaultValue={patient.risk_class ?? ""} style={inputStyle}>
+              <option value="">\u2014</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </FieldWrap>
+          <FieldWrap>
+            <label style={labelStyle}>Start date</label>
+            <input name="intake_date" type="date" defaultValue={patient.intake_date} style={inputStyle} />
+          </FieldWrap>
+          <div style={{ display: "flex", gap: 8 }}>
+            <SmallButton type="submit">Save</SmallButton>
+            <SmallButton type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </SmallButton>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: 180, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        {patient.risk_class && risk ? (
+          <div>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px" }}>Risk class</p>
+            <span
+              style={{
+                background: risk.bg,
+                color: risk.text,
+                fontSize: 12,
+                padding: "2px 8px",
+                borderRadius: "var(--radius)",
+                display: "inline-block",
+                marginBottom: 12,
+                textTransform: "capitalize",
+              }}
+            >
+              {patient.risk_class}
+            </span>
+          </div>
+        ) : (
+          <div />
+        )}
+        <button
+          onClick={() => setEditing(true)}
+          title="Edit patient details"
+          style={{ background: "none", border: "none", color: "var(--text-accent)", fontSize: 12, cursor: "pointer", padding: 0 }}
+        >
+          Edit
         </button>
+      </div>
+      <SidebarField label="Phone" value={patient.phone ?? "\u2014"} />
+      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+        <SidebarField label="Age" value={age?.toString() ?? "\u2014"} />
+        <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "\u2014"} />
+        <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "\u2014"} />
+      </div>
+      <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
+        <SidebarField label="Diagnosis" value={formatIndication(patient.indication, patient.indication_detail)} />
+        {warfarin && (
+          <SidebarField label="Target range" value={`${patient.target_inr_low}\u2013${patient.target_inr_high}`} />
+        )}
+        <SidebarField label="Anticoagulant" value={patient.anticoagulant_type} />
+        <SidebarField label="Start date" value={patient.intake_date} />
       </div>
     </div>
   );
@@ -317,6 +434,7 @@ function MetricsView(props: {
   latestHasBled: number | null;
   latestCreatinine: LabResult | null;
   targetInrHistory: TargetInrHistoryEntry[];
+  hasBledResults: ScoringResult[];
 }) {
   const {
     patientId,
@@ -330,13 +448,17 @@ function MetricsView(props: {
     latestHasBled,
     latestCreatinine,
     targetInrHistory,
+    hasBledResults,
   } = props;
 
   if (!warfarin) {
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-        <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "\u2014"} />
-        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+      <div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 18 }}>
+          <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "\u2014"} />
+          <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+        </div>
+        <HasBledPanel patientId={patientId} results={hasBledResults} />
       </div>
     );
   }
@@ -355,7 +477,83 @@ function MetricsView(props: {
         <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
       </div>
       <TargetInrPanel patientId={patientId} history={targetInrHistory} />
+      <div style={{ height: 12 }} />
+      <HasBledPanel patientId={patientId} results={hasBledResults} />
     </div>
+  );
+}
+
+function HasBledPanel({ patientId, results }: { patientId: string; results: ScoringResult[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const boundAdd = addHasBledAssessment.bind(null, patientId);
+  const sorted = [...results].sort((a, b) => (a.score_date < b.score_date ? 1 : -1));
+  const latest = sorted[0];
+
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showForm ? 10 : 0 }}>
+        <div>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>HAS-BLED (bleeding risk)</p>
+          <p style={{ fontSize: 15, margin: "2px 0 0" }}>
+            {latest ? `${latest.score_value} / 9 (${latest.score_date})` : "\u2014 no assessment yet"}
+          </p>
+        </div>
+        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New assessment"}</SmallButton>
+      </div>
+
+      {showForm && (
+        <form
+          action={async (fd) => {
+            await boundAdd(fd);
+            setShowForm(false);
+          }}
+          style={{ marginTop: 10 }}
+        >
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px" }}>
+            Elderly (age), labile INR, and interacting drugs are computed automatically from this
+            patient's own data \u2014 only tick what the engine can't already know.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+            <CheckboxField name="hypertension" label="Hypertension (uncontrolled, SBP > 160)" />
+            <CheckboxField name="abnormalRenal" label="Abnormal renal function (dialysis/transplant/Cr >200)" />
+            <CheckboxField name="abnormalLiver" label="Abnormal liver function (cirrhosis/LFTs >3x)" />
+            <CheckboxField name="strokeHistory" label="Prior stroke" />
+            <CheckboxField name="bleedingHistory" label="Bleeding history or predisposition" />
+            <CheckboxField name="alcoholExcess" label="Alcohol excess (\u22658 units/week)" />
+          </div>
+          <SmallButton type="submit">Calculate & save</SmallButton>
+        </form>
+      )}
+
+      {sorted.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: "0.5px solid var(--border)", paddingTop: 10 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
+          {sorted.map((r) => (
+            <p key={r.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
+              {r.score_value} / 9 on {r.score_date}
+              {r.components ? (
+                <span style={{ color: "var(--text-muted)" }}>
+                  {" "}
+                  \u2014 {Object.entries(r.components)
+                    .filter(([, v]) => v === true)
+                    .map(([k]) => k)
+                    .join(", ") || "no positive factors"}
+                </span>
+              ) : null}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckboxField({ name, label }: { name: string; label: string }) {
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+      <input type="checkbox" name={name} style={{ width: "auto", padding: 0 }} />
+      {label}
+    </label>
   );
 }
 
@@ -418,11 +616,17 @@ function GraphView({
   inrLabs,
   creatinineLabs,
   hasBledResults,
+  rollingTtr,
+  rollingPinrr,
+  rollingVariability,
 }: {
   warfarin: boolean;
   inrLabs: LabResult[];
   creatinineLabs: LabResult[];
   hasBledResults: ScoringResult[];
+  rollingTtr: { date: Date; ttrPercent: number }[];
+  rollingPinrr: { date: Date; pinrr: number }[];
+  rollingVariability: { date: Date; cv: number; sd: number }[];
 }) {
   const series = warfarin ? inrLabs : creatinineLabs;
   const label = warfarin ? "INR" : "Serum creatinine";
@@ -430,10 +634,41 @@ function GraphView({
     <div>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px" }}>{label} trend</p>
       <SimpleSparkline points={series.map((s) => s.result_value)} />
+
       {hasBledResults.length > 0 && (
         <>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>HAS-BLED over time</p>
           <SimpleSparkline points={hasBledResults.map((h) => h.score_value)} stepped />
+        </>
+      )}
+
+      {warfarin && (rollingTtr.length > 0 || rollingPinrr.length > 0 || rollingVariability.length > 0) && (
+        <>
+          <p style={{ fontSize: 13, fontWeight: 500, margin: "24px 0 4px" }}>Quality measures over time</p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 12px" }}>
+            Each point is computed cumulatively up to that visit \u2014 not a single end-of-course number.
+          </p>
+
+          {rollingTtr.length > 0 && (
+            <>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px" }}>TTR (Rosendaal) over time</p>
+              <SimpleSparkline points={rollingTtr.map((r) => r.ttrPercent)} />
+            </>
+          )}
+
+          {rollingPinrr.length > 0 && (
+            <>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>PINRR over time</p>
+              <SimpleSparkline points={rollingPinrr.map((r) => r.pinrr)} />
+            </>
+          )}
+
+          {rollingVariability.length > 0 && (
+            <>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "16px 0 6px" }}>CV-INR (%) over time</p>
+              <SimpleSparkline points={rollingVariability.map((r) => r.cv)} />
+            </>
+          )}
         </>
       )}
     </div>
@@ -474,16 +709,22 @@ function SimpleSparkline({ points, stepped }: { points: number[]; stepped?: bool
 }
 
 function HistoryView({
+  patientId,
   encounters,
   inrLabs,
   targetLow,
   targetHigh,
 }: {
+  patientId: string;
   encounters: Encounter[];
   inrLabs: LabResult[];
   targetLow: number | null;
   targetHigh: number | null;
 }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const boundAdd = addEncounter.bind(null, patientId);
+
   function inRangeBarFor(date: string) {
     const lab = inrLabs.find((l) => l.test_date === date);
     if (!lab || !targetLow || !targetHigh) return null;
@@ -507,44 +748,118 @@ function HistoryView({
   }
 
   return (
-    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
-        <thead>
-          <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
-            <th style={thStyle("18%")}>Date</th>
-            <th style={thStyle("12%")}>INR</th>
-            <th style={thStyle("14%")}>Dose</th>
-            <th style={thStyle("16%")}>Room</th>
-            <th style={thStyle("18%")}>In range</th>
-            <th style={thStyle("22%")}>Comments</th>
-          </tr>
-        </thead>
-        <tbody>
-          {encounters.map((e, i) => {
-            const bar = inRangeBarFor(e.encounter_date);
-            return (
-              <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
-                <td style={tdStyle}>{e.encounter_date}</td>
-                <td style={tdStyle}>{bar ? bar.value : "\u2014"}</td>
-                <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "\u2014"}</td>
-                <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "\u2014"}</td>
-                <td style={tdStyle}>
-                  {bar ? (
-                    <div style={{ background: "var(--surface-1)", borderRadius: 3, height: 8, width: "100%", overflow: "hidden" }}>
-                      <div style={{ background: bar.color, height: "100%", width: `${bar.pct}%` }} />
-                    </div>
-                  ) : (
-                    "\u2014"
-                  )}
-                </td>
-                <td style={{ ...tdStyle, color: "var(--text-secondary)", fontSize: 11 }}>
-                  {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "\u2026" : "") : ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <SmallButton onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add visit"}</SmallButton>
+      </div>
+
+      {showAdd && (
+        <form
+          action={async (fd) => {
+            await boundAdd(fd);
+            setShowAdd(false);
+          }}
+          style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
+        >
+          <EncounterFields />
+          <SmallButton type="submit">Save visit</SmallButton>
+        </form>
+      )}
+
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
+          <thead>
+            <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
+              <th style={thStyle("16%")}>Date</th>
+              <th style={thStyle("10%")}>INR</th>
+              <th style={thStyle("12%")}>Dose</th>
+              <th style={thStyle("14%")}>Room</th>
+              <th style={thStyle("16%")}>In range</th>
+              <th style={thStyle("20%")}>Comments</th>
+              <th style={thStyle("12%")}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {encounters.map((e, i) => {
+              const bar = inRangeBarFor(e.encounter_date);
+              const isEditing = editingId === e.id;
+              const boundUpdate = updateEncounter.bind(null, patientId, e.id);
+              if (isEditing) {
+                return (
+                  <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
+                    <td colSpan={7} style={{ padding: 10 }}>
+                      <form
+                        action={async (fd) => {
+                          await boundUpdate(fd);
+                          setEditingId(null);
+                        }}
+                      >
+                        <EncounterFields encounter={e} />
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <SmallButton type="submit">Save</SmallButton>
+                          <SmallButton type="button" onClick={() => setEditingId(null)}>
+                            Cancel
+                          </SmallButton>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
+                  <td style={tdStyle}>{e.encounter_date}</td>
+                  <td style={tdStyle}>{bar ? bar.value : "\u2014"}</td>
+                  <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "\u2014"}</td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "\u2014"}</td>
+                  <td style={tdStyle}>
+                    {bar ? (
+                      <div style={{ background: "var(--surface-1)", borderRadius: 3, height: 8, width: "100%", overflow: "hidden" }}>
+                        <div style={{ background: bar.color, height: "100%", width: `${bar.pct}%` }} />
+                      </div>
+                    ) : (
+                      "\u2014"
+                    )}
+                  </td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)", fontSize: 11 }}>
+                    {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "\u2026" : "") : ""}
+                  </td>
+                  <td style={tdStyle}>
+                    <SmallButton onClick={() => setEditingId(e.id)}>Edit</SmallButton>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EncounterFields({ encounter }: { encounter?: Encounter }) {
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+      <FieldWrap width={140}>
+        <label style={labelStyle}>Visit date</label>
+        <input name="encounter_date" type="date" defaultValue={encounter?.encounter_date} required style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={110}>
+        <label style={labelStyle}>Dose (mg)</label>
+        <input name="current_dose_mg" type="number" step="0.1" defaultValue={encounter?.current_dose_mg ?? ""} style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={130}>
+        <label style={labelStyle}>Room</label>
+        <input name="room" defaultValue={encounter?.room ?? ""} style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={150}>
+        <label style={labelStyle}>Next appointment</label>
+        <input name="next_appt_date" type="date" defaultValue={encounter?.next_appt_date ?? ""} style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap>
+        <label style={labelStyle}>Notes</label>
+        <input name="notes" defaultValue={encounter?.notes ?? ""} style={inputStyle} />
+      </FieldWrap>
     </div>
   );
 }
@@ -554,8 +869,20 @@ function thStyle(width: string): React.CSSProperties {
 }
 const tdStyle: React.CSSProperties = { padding: "7px 8px" };
 
-function LabsView({ inrLabs, creatinineLabs }: { inrLabs: LabResult[]; creatinineLabs: LabResult[] }) {
+function LabsView({
+  patientId,
+  inrLabs,
+  creatinineLabs,
+}: {
+  patientId: string;
+  inrLabs: LabResult[];
+  creatinineLabs: LabResult[];
+}) {
   const all = [...inrLabs, ...creatinineLabs].sort((a, b) => b.test_date.localeCompare(a.test_date));
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const boundAdd = addLabResult.bind(null, patientId);
+
   return (
     <div>
       <div
@@ -571,28 +898,113 @@ function LabsView({ inrLabs, creatinineLabs }: { inrLabs: LabResult[]; creatinin
       >
         Paste a lab screenshot here to auto-fill results \u2014 not wired up yet, pending AI pipeline approval
       </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <SmallButton onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add lab result"}</SmallButton>
+      </div>
+
+      {showAdd && (
+        <form
+          action={async (fd) => {
+            await boundAdd(fd);
+            setShowAdd(false);
+          }}
+          style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
+        >
+          <LabResultFields />
+          <SmallButton type="submit">Save result</SmallButton>
+        </form>
+      )}
+
       <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
-              <th style={thStyle("22%")}>Date</th>
-              <th style={thStyle("30%")}>Test</th>
-              <th style={thStyle("20%")}>Value</th>
-              <th style={thStyle("28%")}>Source</th>
+              <th style={thStyle("18%")}>Date</th>
+              <th style={thStyle("24%")}>Test</th>
+              <th style={thStyle("16%")}>Value</th>
+              <th style={thStyle("22%")}>Source</th>
+              <th style={thStyle("20%")}></th>
             </tr>
           </thead>
           <tbody>
-            {all.map((l) => (
-              <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                <td style={tdStyle}>{l.test_date}</td>
-                <td style={tdStyle}>{l.test_name}</td>
-                <td style={tdStyle}>{l.result_value} {l.unit}</td>
-                <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
-              </tr>
-            ))}
+            {all.map((l) => {
+              const isEditing = editingId === l.id;
+              const boundUpdate = updateLabResult.bind(null, patientId, l.id);
+              const boundDelete = deleteLabResult.bind(null, patientId, l.id);
+              if (isEditing) {
+                return (
+                  <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
+                    <td colSpan={5} style={{ padding: 10 }}>
+                      <form
+                        action={async (fd) => {
+                          await boundUpdate(fd);
+                          setEditingId(null);
+                        }}
+                      >
+                        <LabResultFields lab={l} />
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <SmallButton type="submit">Save</SmallButton>
+                          <SmallButton type="button" onClick={() => setEditingId(null)}>
+                            Cancel
+                          </SmallButton>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
+                  <td style={tdStyle}>{l.test_date}</td>
+                  <td style={tdStyle}>{l.test_name}</td>
+                  <td style={tdStyle}>{l.result_value} {l.unit}</td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
+                  <td style={tdStyle}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <SmallButton onClick={() => setEditingId(l.id)}>Edit</SmallButton>
+                      <form action={boundDelete}>
+                        <SmallButton type="submit" variant="danger">
+                          Delete
+                        </SmallButton>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function LabResultFields({ lab }: { lab?: LabResult }) {
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+      <FieldWrap width={150}>
+        <label style={labelStyle}>Test</label>
+        <input name="test_name" defaultValue={lab?.test_name ?? "INR"} required list="lab-test-names" style={inputStyle} />
+        <datalist id="lab-test-names">
+          <option value="INR" />
+          <option value="Serum creatinine" />
+          <option value="Hb" />
+          <option value="Platelets" />
+        </datalist>
+      </FieldWrap>
+      <FieldWrap width={110}>
+        <label style={labelStyle}>Value</label>
+        <input name="result_value" type="number" step="0.01" defaultValue={lab?.result_value ?? ""} required style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={90}>
+        <label style={labelStyle}>Unit</label>
+        <input name="unit" defaultValue={lab?.unit ?? ""} style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={140}>
+        <label style={labelStyle}>Date</label>
+        <input name="test_date" type="date" defaultValue={lab?.test_date} required style={inputStyle} />
+      </FieldWrap>
     </div>
   );
 }
@@ -664,15 +1076,39 @@ function EmptyState({ text }: { text: string }) {
 // ---------------------------------------------------------------------------
 function ContactsView({ patientId, value }: { patientId: string; value: string | null }) {
   const [isPending, startTransition] = useTransition();
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [editing, setEditing] = useState(!value); // no contact info yet → start in edit mode
   const boundAction = updateEmergencyContact.bind(null, patientId);
+
+  if (!editing) {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <SmallButton onClick={() => setEditing(true)}>Edit</SmallButton>
+        </div>
+        <pre
+          style={{
+            fontFamily: "inherit",
+            fontSize: 14,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            margin: 0,
+            border: "0.5px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: 12,
+          }}
+        >
+          {value}
+        </pre>
+      </div>
+    );
+  }
 
   return (
     <form
       action={(formData) => {
         startTransition(async () => {
           await boundAction(formData);
-          setSavedAt(Date.now());
+          setEditing(false);
         });
       }}
     >
@@ -687,10 +1123,12 @@ function ContactsView({ patientId, value }: { patientId: string; value: string |
       />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
         <SmallButton type="submit" disabled={isPending}>
-          {isPending ? "Saving\u2026" : "Save contact info"}
+          {isPending ? "Saving\u2026" : "Save"}
         </SmallButton>
-        {savedAt && !isPending && (
-          <span style={{ fontSize: 12, color: "var(--text-success)" }}>Saved</span>
+        {value && (
+          <SmallButton type="button" onClick={() => setEditing(false)}>
+            Cancel
+          </SmallButton>
         )}
       </div>
     </form>

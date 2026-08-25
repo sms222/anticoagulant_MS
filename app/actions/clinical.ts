@@ -38,6 +38,172 @@ export async function updateTargetInr(patientId: string, formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
+// Patient details — everything editable except name / MRN / DOB (backend-only,
+// identity fields; changing those goes through whoever administers the DB)
+// ---------------------------------------------------------------------------
+export async function updatePatientDetails(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const indication = formData.get("indication") as string;
+  const { error } = await supabase
+    .from("patients")
+    .update({
+      phone: (formData.get("phone") as string) || null,
+      address: (formData.get("address") as string) || null,
+      weight_kg: formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null,
+      height_cm: formData.get("height_cm") ? Number(formData.get("height_cm")) : null,
+      indication,
+      indication_detail: indication === "other" ? (formData.get("indication_detail") as string) || null : null,
+      anticoagulant_type: formData.get("anticoagulant_type") as string,
+      risk_class: (formData.get("risk_class") as string) || null,
+      intake_date: (formData.get("intake_date") as string) || undefined,
+    })
+    .eq("id", patientId);
+  if (error) throw new Error("Could not update patient details: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// Lab results — add / edit / delete
+// ---------------------------------------------------------------------------
+export async function addLabResult(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase.from("lab_results").insert({
+    patient_id: patientId,
+    test_name: formData.get("test_name") as string,
+    result_value: Number(formData.get("result_value")),
+    unit: (formData.get("unit") as string) || null,
+    test_date: (formData.get("test_date") as string) || new Date().toISOString().slice(0, 10),
+    source: "manual",
+  });
+  if (error) throw new Error("Could not add lab result: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+export async function updateLabResult(patientId: string, labId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("lab_results")
+    .update({
+      test_name: formData.get("test_name") as string,
+      result_value: Number(formData.get("result_value")),
+      unit: (formData.get("unit") as string) || null,
+      test_date: formData.get("test_date") as string,
+    })
+    .eq("id", labId);
+  if (error) throw new Error("Could not update lab result: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+export async function deleteLabResult(patientId: string, labId: string) {
+  const supabase = createServerClient();
+  const { error } = await supabase.from("lab_results").delete().eq("id", labId);
+  if (error) throw new Error("Could not delete lab result: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// Encounters (visits) — add / edit. Dose, room, next appt, notes are the
+// fields a pharmacist actually fills in at a visit.
+// ---------------------------------------------------------------------------
+export async function addEncounter(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase.from("encounters").insert({
+    patient_id: patientId,
+    encounter_date: (formData.get("encounter_date") as string) || new Date().toISOString().slice(0, 10),
+    current_dose_mg: formData.get("current_dose_mg") ? Number(formData.get("current_dose_mg")) : null,
+    room: (formData.get("room") as string) || null,
+    next_appt_date: (formData.get("next_appt_date") as string) || null,
+    notes: (formData.get("notes") as string) || null,
+  });
+  if (error) throw new Error("Could not add visit: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+export async function updateEncounter(patientId: string, encounterId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("encounters")
+    .update({
+      encounter_date: formData.get("encounter_date") as string,
+      current_dose_mg: formData.get("current_dose_mg") ? Number(formData.get("current_dose_mg")) : null,
+      room: (formData.get("room") as string) || null,
+      next_appt_date: (formData.get("next_appt_date") as string) || null,
+      notes: (formData.get("notes") as string) || null,
+    })
+    .eq("id", encounterId);
+  if (error) throw new Error("Could not update visit: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// HAS-BLED — the score is never entered directly. The engine asks only for
+// the variables it can't derive itself (hypertension, abnormal renal/liver
+// function, stroke history, bleeding history, alcohol excess) and computes
+// the rest (elderly from DOB, labile INR from this patient's own TTR, drug
+// interactions from the active medications list).
+// ---------------------------------------------------------------------------
+export async function addHasBledAssessment(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+
+  const [{ data: patient }, { data: medications }, { data: inrLabs }, { data: targetHistory }, { data: toolDef }] =
+    await Promise.all([
+      supabase.from("patients").select("date_of_birth, target_inr_low, target_inr_high, intake_date").eq("id", patientId).single(),
+      supabase.from("medications").select("drug_name").eq("patient_id", patientId).eq("active", true),
+      supabase.from("lab_results").select("result_value, test_date").eq("patient_id", patientId).eq("test_name", "INR"),
+      supabase.from("target_inr_history").select("target_inr_low, target_inr_high, effective_date").eq("patient_id", patientId),
+      supabase.from("scoring_tool_definitions").select("id").eq("tool_name", "HAS-BLED").single(),
+    ]);
+
+  if (!patient || !toolDef) throw new Error("Could not load patient or HAS-BLED tool definition");
+
+  const { calculateAge } = await import("@/lib/types");
+  const { calculateRosendaalTTR } = await import("@/lib/calculators/rosendaal");
+  const { calculateHasBled, detectInteractingDrugs } = await import("@/lib/calculators/has-bled");
+
+  const age = calculateAge(patient.date_of_birth);
+  const elderly = age !== null && age > 65;
+
+  const ranges =
+    (targetHistory ?? []).length > 0
+      ? (targetHistory ?? []).map((t) => ({
+          from: new Date(t.effective_date),
+          low: Number(t.target_inr_low),
+          high: Number(t.target_inr_high),
+        }))
+      : patient.target_inr_low && patient.target_inr_high
+      ? [{ from: new Date(patient.intake_date), low: Number(patient.target_inr_low), high: Number(patient.target_inr_high) }]
+      : [];
+
+  const readings = (inrLabs ?? []).map((l) => ({ date: new Date(l.test_date), value: Number(l.result_value) }));
+  const ttr = ranges.length > 0 ? calculateRosendaalTTR(readings, ranges) : null;
+  const labileInr = ttr !== null && readings.length >= 2 && ttr.ttrPercent < 60;
+
+  const interactingDrugs = detectInteractingDrugs((medications ?? []).map((m) => m.drug_name));
+
+  const result = calculateHasBled(
+    {
+      hypertension: formData.get("hypertension") === "on",
+      abnormalRenal: formData.get("abnormalRenal") === "on",
+      abnormalLiver: formData.get("abnormalLiver") === "on",
+      strokeHistory: formData.get("strokeHistory") === "on",
+      bleedingHistory: formData.get("bleedingHistory") === "on",
+      alcoholExcess: formData.get("alcoholExcess") === "on",
+    },
+    { elderly, labileInr, interactingDrugs }
+  );
+
+  const { error } = await supabase.from("scoring_tool_results").insert({
+    patient_id: patientId,
+    tool_id: toolDef.id,
+    score_date: new Date().toISOString().slice(0, 10),
+    score_value: result.score,
+    components: result.components,
+  });
+  if (error) throw new Error("Could not save HAS-BLED assessment: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
 // Contacts — single free-text field on patients
 // ---------------------------------------------------------------------------
 export async function updateEmergencyContact(patientId: string, formData: FormData) {

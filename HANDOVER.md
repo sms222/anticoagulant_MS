@@ -1,5 +1,5 @@
 # ACMS — Anticoagulation Management System
-## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12)
+## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13)
 
 For: UKM / Hospital Canselor Tuanku Muhriz anticoagulation clinic pharmacy team
 Owner: Shamin Mohd Saffian
@@ -195,12 +195,6 @@ session's scope.
 review and push to `main` — no GitHub write access was available in this session, so
 nothing was pushed automatically. Diff the zip against the repo before pushing.
 
-## 9. Who to ask
-
-Everything above was built collaboratively with Claude across sessions on 24–25 August
-2026 — full reasoning and back-and-forth is in that conversation history if context on
-*why* a decision was made is needed later.
-
 ---
 
 ## 12. Second session — 25 August 2026: intake form fixes + theme + home page
@@ -224,13 +218,10 @@ a later visit doesn't get retroactively applied to earlier days. Existing patien
 backfilled with one history row each (dated to intake) so nothing broke.
 
 A control to update the target INR ("Update at this visit") lives in Dosing → Metrics,
-below the metric cards, with the change history listed underneath. **Not done:** the
-INR graph doesn't visually shade the changing target band over time — it wasn't in
-scope for this round. If that's wanted, it's a real SVG-layering task, not a quick add.
+below the metric cards, with the change history listed underneath.
 
 **12.3 Risk class** — Removed from the intake form. The column and sidebar chip still
-exist; there's just still no edit flow to set it post-intake (same gap as before —
-nothing changed there).
+exist; there's now an edit path via the sidebar (§13.1).
 
 **12.4 Notes** — Added a free-text field to intake, writing to `patients.notes` (column
 already existed, wasn't in the form).
@@ -262,9 +253,82 @@ patient chart.
 
 **12.8 Not done from this round**
 - Appointment check-in UI (still gap 2, §8).
-- Encounters/dosing edit flow (still disabled Save button).
 - Visual shading of historical target ranges on the INR graph (12.2).
-- Risk class still has no way to be set after intake.
 
 **12.9 Delivery note** — Same as §11.7: applied to the live Supabase project directly,
 packaged as a zip, not pushed to GitHub (no write access in this session).
+
+---
+
+## 13. Third session — 25 August 2026: full edit capability + engine-computed HAS-BLED
+
+Requester reviewed a live patient chart and asked for everything editable, Contacts to
+lock after save (not always-open), and HAS-BLED to be computed from clinical variables
+rather than entered as a raw number, with all quality measures plotted over time.
+
+**13.1 Editable everything except name / MRN / DOB** — those three stay read-only by
+design (identity fields, backend-only change). Everything else now has a save path:
+- **Sidebar** (`PatientDetailsSidebar`) — Edit button reveals a form for phone, address,
+  weight, height, indication (+ free text), anticoagulant type, risk class, start date.
+  New action: `updatePatientDetails`.
+- **Labs tab** — add/edit/delete individual `lab_results` rows directly (test name,
+  value, unit, date). New actions: `addLabResult`, `updateLabResult`, `deleteLabResult`.
+- **Dosing → History** — "+ Add visit" creates a new `encounters` row; each existing row
+  has an Edit button that expands an inline form (dose, room, next appointment, notes).
+  New actions: `addEncounter`, `updateEncounter`.
+- The old disabled "Save" button at the bottom of the chart is gone — editing now
+  happens at the section it belongs to (this matches the pattern already used for
+  Drugs/Events/Reminders), so one global button no longer made sense.
+
+**13.2 Contacts locks after save** — Was always an open textarea. Now: view mode shows
+the saved text read-only with an Edit button; Edit mode shows the textarea + Save/Cancel.
+Starts in edit mode only if nothing's been saved yet (first use).
+
+**13.3 HAS-BLED computed, not entered** — New `lib/calculators/has-bled.ts`. The
+clinician never types a score. Of the 9 HAS-BLED components:
+- **Elderly** (age > 65) — derived from date of birth.
+- **Labile INR** — derived from this patient's own computed TTR (< 60%).
+- **Drugs predisposing to bleeding** — derived by scanning the active medications list
+  for antiplatelets/NSAIDs (aspirin, clopidogrel, ibuprofen, etc. — keyword list is in
+  the calculator file, easy to extend).
+- The other 6 (hypertension, abnormal renal function, abnormal liver function, stroke
+  history, bleeding history/predisposition, alcohol excess) aren't derivable from
+  structured data in this system, so those are asked for as plain checkboxes — nothing
+  else.
+
+New action `addHasBledAssessment` pulls the patient's DOB, active medications, INR
+readings, and target INR history server-side, computes the three auto factors, combines
+them with the checkbox inputs, and writes score + full component breakdown to
+`scoring_tool_results.components` (jsonb — was already in the schema, just unused).
+Assessment panel lives in Dosing → Metrics for **both** warfarin and NOAC patients
+(bleeding risk isn't warfarin-specific), with history shown underneath.
+
+**13.4 Quality measures plotted over time** — Dosing → Graph now shows, for warfarin
+patients: TTR, PINRR, and CV-INR as their own trend lines, each point computed
+*cumulatively up to that visit* (not one end-of-course number applied retroactively).
+New functions `computeRollingTtr`, `computeRollingPinrr` in `rosendaal.ts` and
+`computeRollingVariability` in `inr-variability.ts`. HAS-BLED-over-time was already
+plotted from the previous session and now has real data behind it via 13.3.
+
+Still plain SVG sparklines, still the accepted shortcut from gap 5 (§5) — multiple
+small multiples stacked vertically rather than one combined multi-axis chart. If a
+combined chart with a shared time axis is wanted, that's real charting-library work
+(Chart.js/Recharts are in `package.json` unused, per gap 5), not a quick follow-up.
+
+**13.5 Not done from this round**
+- No delete for encounters (add/edit only — deleting a visit felt like it wanted a
+  confirmation step this round didn't have time for; flag if it's actually needed).
+- HAS-BLED drug-interaction keyword list is a reasonable starting set, not a validated
+  formulary check — extend `ANTIPLATELET_NSAID_KEYWORDS` in `has-bled.ts` as needed.
+- Quality-measure trend lines are separate small charts, not overlaid on one graph with
+  the INR line.
+
+**13.6 Delivery note** — Same as before: applied directly to the live Supabase project,
+verified with real calculator runs against Siti Nur Aisyah's actual data (not just
+typecheck), packaged as a zip, not pushed to GitHub.
+
+## 9. Who to ask
+
+Everything above was built collaboratively with Claude across sessions on 24–25 August
+2026 — full reasoning and back-and-forth is in that conversation history if context on
+*why* a decision was made is needed later.

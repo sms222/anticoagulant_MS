@@ -57,7 +57,7 @@ export async function getScoringResults(
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("scoring_tool_results")
-    .select("id, patient_id, score_date, score_value, scoring_tool_definitions(tool_name)")
+    .select("id, patient_id, score_date, score_value, components, scoring_tool_definitions(tool_name)")
     .eq("patient_id", patientId)
     .eq("scoring_tool_definitions.tool_name", toolName)
     .order("score_date", { ascending: true });
@@ -68,6 +68,7 @@ export async function getScoringResults(
     score_date: row.score_date,
     score_value: row.score_value,
     tool_name: row.scoring_tool_definitions?.tool_name ?? toolName,
+    components: row.components ?? null,
   }));
 }
 

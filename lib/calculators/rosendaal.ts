@@ -99,3 +99,34 @@ export function calculatePINRR(readings: InrReading[], ranges: TargetRangePeriod
   }).length;
   return (inRange / readings.length) * 100;
 }
+
+/** Cumulative TTR computed at each reading date (using data up to and including
+ *  that date), for plotting how TTR evolves visit-to-visit rather than a single
+ *  end-of-course number. */
+export function computeRollingTtr(
+  readings: InrReading[],
+  ranges: TargetRangePeriod[]
+): { date: Date; ttrPercent: number }[] {
+  const sorted = [...readings].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const out: { date: Date; ttrPercent: number }[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const slice = sorted.slice(0, i + 1);
+    const { ttrPercent } = calculateRosendaalTTR(slice, ranges);
+    out.push({ date: sorted[i].date, ttrPercent });
+  }
+  return out;
+}
+
+/** Cumulative PINRR at each reading date. */
+export function computeRollingPinrr(
+  readings: InrReading[],
+  ranges: TargetRangePeriod[]
+): { date: Date; pinrr: number }[] {
+  const sorted = [...readings].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const out: { date: Date; pinrr: number }[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const slice = sorted.slice(0, i + 1);
+    out.push({ date: sorted[i].date, pinrr: calculatePINRR(slice, ranges) });
+  }
+  return out;
+}

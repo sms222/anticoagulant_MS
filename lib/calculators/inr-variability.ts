@@ -42,3 +42,18 @@ export function calculateExtremeValueRate(
   const extreme = readings.filter((r) => r.value < lowCutoff || r.value > highCutoff).length;
   return (extreme / readings.length) * 100;
 }
+
+/** Cumulative CV-INR computed at each reading date, for plotting how INR
+ *  variability trends over the patient's course. */
+export function computeRollingVariability(
+  readings: InrReading[]
+): { date: Date; cv: number; sd: number }[] {
+  const sorted = [...readings].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const out: { date: Date; cv: number; sd: number }[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const slice = sorted.slice(0, i + 1);
+    const { coefficientOfVariation, standardDeviation } = calculateInrVariability(slice);
+    out.push({ date: sorted[i].date, cv: coefficientOfVariation, sd: standardDeviation });
+  }
+  return out;
+}
