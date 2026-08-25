@@ -9,19 +9,26 @@
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
   --text-muted: #898781;
-  --text-accent: #185fa5;
+  /* Brand accent — blood red. Used for links, active tabs, primary actions. */
+  --text-accent: #a3161a;
   --text-danger: #a32d2d;
   --text-warning: #854f0b;
   --text-success: #3b6d11;
+  /* Distinct from --text-accent on purpose: "in progress" status shouldn't
+     visually clash with the red danger/accent palette. */
+  --text-info: #1f5c8a;
   --border: rgba(11,11,11,0.10);
-  --border-strong: rgba(11,11,11,0.20);
-  --border-accent: #378add;
-  --bg-accent: #e6f1fb;
+  --border-strong: rgba(11,11,11,0.32);
+  --border-accent: #a3161a;
+  --bg-accent: #fbe9e9;
   --bg-danger: #fcebeb;
   --bg-warning: #faeeda;
   --bg-success: #eaf3de;
+  --bg-info: #e6f0f7;
   --fill-primary: #0b0b0b;
+  --fill-accent: #a3161a;
   --on-primary: #ffffff;
+  --on-accent: #ffffff;
   --radius: 8px;
 }
 
@@ -33,14 +40,56 @@
     --text-primary: #f0efec;
     --text-secondary: #c3c2b7;
     --text-muted: #898781;
-    --border: rgba(255,255,255,0.10);
-    --border-strong: rgba(255,255,255,0.20);
+    --text-accent: #e0595d;
+    --border: rgba(255,255,255,0.14);
+    --border-strong: rgba(255,255,255,0.30);
+    --border-accent: #e0595d;
+    --bg-accent: #3a1e1e;
+    --bg-info: #1b2c38;
     --fill-primary: #f0efec;
+    --fill-accent: #c53a3e;
     --on-primary: #0b0b0b;
+    --on-accent: #ffffff;
   }
 }
 
 body {
   background: var(--surface-0);
   color: var(--text-primary);
+}
+
+/* Base form control styling — Tailwind preflight strips native browser
+   chrome from inputs/selects, which is what was making the "Add patient"
+   form look faded/borderless. Give every control real contrast by default. */
+input,
+select,
+textarea {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-0);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--bg-accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: var(--text-accent);
 }

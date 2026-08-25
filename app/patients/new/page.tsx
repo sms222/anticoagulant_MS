@@ -1,7 +1,15 @@
+"use client";
+
+import { useState } from "react";
 import { createPatient } from "@/app/actions/patients";
+import { INDICATION_OPTIONS } from "@/lib/types";
 import Link from "next/link";
 
 export default function NewPatientPage() {
+  const [indication, setIndication] = useState("");
+  const [anticoagulant, setAnticoagulant] = useState("");
+  const isWarfarin = anticoagulant === "warfarin";
+
   return (
     <main style={{ padding: "2rem", maxWidth: 640, margin: "0 auto" }}>
       <Link href="/" style={{ fontSize: 13, color: "var(--text-secondary)", textDecoration: "none" }}>
@@ -14,7 +22,7 @@ export default function NewPatientPage() {
 
         <Row>
           <Field label="Date of birth" name="date_of_birth" type="date" />
-          <SelectField label="Sex" name="sex" options={["male", "female"]} />
+          <SelectField label="Sex" name="sex" options={[{ value: "male", label: "Male" }, { value: "female", label: "Female" }]} />
         </Row>
 
         <Row>
@@ -26,31 +34,56 @@ export default function NewPatientPage() {
           label="Indication"
           name="indication"
           required
-          options={["af_nonvalvular", "af_valvular", "mechanical_valve", "vte_dvt", "vte_pe", "other"]}
+          options={INDICATION_OPTIONS}
+          value={indication}
+          onChange={setIndication}
         />
+        {indication === "other" && (
+          <Field label="Indication (free text)" name="indication_detail" required />
+        )}
 
         <SelectField
           label="Anticoagulant"
           name="anticoagulant_type"
           required
-          options={["warfarin", "rivaroxaban", "apixaban", "dabigatran", "edoxaban", "other"]}
+          options={[
+            { value: "warfarin", label: "Warfarin" },
+            { value: "rivaroxaban", label: "Rivaroxaban" },
+            { value: "apixaban", label: "Apixaban" },
+            { value: "dabigatran", label: "Dabigatran" },
+            { value: "edoxaban", label: "Edoxaban" },
+            { value: "other", label: "Other" },
+          ]}
+          value={anticoagulant}
+          onChange={setAnticoagulant}
         />
 
-        <Row>
-          <Field label="Target INR low (warfarin only)" name="target_inr_low" type="number" step="0.1" />
-          <Field label="Target INR high (warfarin only)" name="target_inr_high" type="number" step="0.1" />
-        </Row>
+        {isWarfarin && (
+          <div style={{ marginBottom: 14 }}>
+            <Field label="Target INR" name="target_inr" type="number" step="0.1" />
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-8px 0 0" }}>
+              Range applied automatically: \u00b10.5 (e.g. 2.5 \u2192 2.0\u20133.0). Can be updated at a later
+              visit \u2014 changes are tracked and feed the TTR graph.
+            </p>
+          </div>
+        )}
 
         <Field label="Phone" name="phone" />
         <Field label="Address" name="address" />
-        <SelectField label="Risk class" name="risk_class" options={["low", "medium", "high"]} />
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            Notes
+          </label>
+          <textarea name="notes" rows={4} style={{ width: "100%", resize: "vertical" }} />
+        </div>
 
         <button
           type="submit"
           style={{
             width: "100%",
-            background: "var(--fill-primary)",
-            color: "var(--on-primary)",
+            background: "var(--fill-accent)",
+            color: "var(--on-accent)",
             border: "none",
             padding: 10,
             fontSize: 14,
@@ -99,22 +132,32 @@ function SelectField({
   name,
   options,
   required,
+  value,
+  onChange,
 }: {
   label: string;
   name: string;
-  options: string[];
+  options: { value: string; label: string }[];
   required?: boolean;
+  value?: string;
+  onChange?: (v: string) => void;
 }) {
   return (
     <div style={{ flex: 1, marginBottom: 14 }}>
       <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
         {label}
       </label>
-      <select name={name} required={required} style={{ width: "100%", height: 36 }}>
+      <select
+        name={name}
+        required={required}
+        style={{ width: "100%", height: 36 }}
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+      >
         <option value="">Select&hellip;</option>
         {options.map((o) => (
-          <option key={o} value={o}>
-            {o.replace(/_/g, " ")}
+          <option key={o.value} value={o.value}>
+            {o.label}
           </option>
         ))}
       </select>

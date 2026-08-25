@@ -8,6 +8,8 @@ import type {
   Medication,
   Reminder,
   PatientDocument,
+  TargetInrHistoryEntry,
+  FollowUpStatus,
 } from "@/lib/types";
 
 export async function getPatient(id: string): Promise<Patient | null> {
@@ -127,6 +129,17 @@ export async function getPatientDocuments(patientId: string): Promise<PatientDoc
   return data as PatientDocument[];
 }
 
+export async function getTargetInrHistory(patientId: string): Promise<TargetInrHistoryEntry[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("target_inr_history")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("effective_date", { ascending: true });
+  if (error) return [];
+  return data as TargetInrHistoryEntry[];
+}
+
 export async function getAllPatients(): Promise<Patient[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase
@@ -136,4 +149,11 @@ export async function getAllPatients(): Promise<Patient[]> {
     .order("name");
   if (error) return [];
   return data as Patient[];
+}
+
+export async function getFollowUpStatuses(): Promise<FollowUpStatus[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase.from("patient_followup_status").select("*");
+  if (error) return [];
+  return data as FollowUpStatus[];
 }

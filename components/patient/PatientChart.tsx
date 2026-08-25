@@ -11,12 +11,14 @@ import type {
   Medication,
   Reminder,
   PatientDocument,
+  TargetInrHistoryEntry,
 } from "@/lib/types";
-import { calculateAge, isWarfarin, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
+import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import {
   calculateRosendaalTTR,
   calculatePINRR,
   type InrReading,
+  type TargetRangePeriod,
 } from "@/lib/calculators/rosendaal";
 import {
   calculateInrVariability,
@@ -24,6 +26,7 @@ import {
 } from "@/lib/calculators/inr-variability";
 import {
   updateEmergencyContact,
+  updateTargetInr,
   addMedication,
   discontinueMedication,
   deleteMedication,
@@ -55,6 +58,7 @@ export function PatientChart({
   medications,
   reminders,
   documents,
+  targetInrHistory,
 }: {
   patient: Patient;
   encounters: Encounter[];
@@ -65,6 +69,7 @@ export function PatientChart({
   medications: Medication[];
   reminders: Reminder[];
   documents: PatientDocument[];
+  targetInrHistory: TargetInrHistoryEntry[];
 }) {
   const [topTab, setTopTab] = useState<TopTab>("dosing");
   const [subTab, setSubTab] = useState<SubTab>("metrics");
@@ -76,14 +81,19 @@ export function PatientChart({
     value: l.result_value,
   }));
 
-  const ttr =
-    warfarin && patient.target_inr_low && patient.target_inr_high
-      ? calculateRosendaalTTR(inrReadings, patient.target_inr_low, patient.target_inr_high)
-      : null;
-  const pinrr =
-    warfarin && patient.target_inr_low && patient.target_inr_high
-      ? calculatePINRR(inrReadings, patient.target_inr_low, patient.target_inr_high)
-      : null;
+  const targetRanges: TargetRangePeriod[] =
+    targetInrHistory.length > 0
+      ? targetInrHistory.map((t) => ({
+          from: new Date(t.effective_date),
+          low: t.target_inr_low,
+          high: t.target_inr_high,
+        }))
+      : patient.target_inr_low && patient.target_inr_high
+      ? [{ from: new Date(patient.intake_date), low: patient.target_inr_low, high: patient.target_inr_high }]
+      : [];
+
+  const ttr = warfarin && targetRanges.length > 0 ? calculateRosendaalTTR(inrReadings, targetRanges) : null;
+  const pinrr = warfarin && targetRanges.length > 0 ? calculatePINRR(inrReadings, targetRanges) : null;
   const variability = warfarin ? calculateInrVariability(inrReadings) : null;
   const extremeRate = warfarin ? calculateExtremeValueRate(inrReadings) : null;
   const latestHasBled = hasBledResults.length
@@ -150,7 +160,7 @@ export function PatientChart({
             <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "\u2014"} />
           </div>
           <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
-            <SidebarField label="Diagnosis" value={patient.indication.replace(/_/g, " ")} />
+            <SidebarField label="Diagnosis" value={formatIndication(patient.indication, patient.indication_detail)} />
             {warfarin && (
               <SidebarField
                 label="Target range"
@@ -170,6 +180,7 @@ export function PatientChart({
               <SubTabBar subTab={subTab} setSubTab={setSubTab} />
               {subTab === "metrics" && (
                 <MetricsView
+                  patientId={patient.id}
                   warfarin={warfarin}
                   ttr={ttr}
                   pinrr={pinrr}
@@ -179,6 +190,7 @@ export function PatientChart({
                   avgIntervalDays={avgIntervalDays}
                   latestHasBled={latestHasBled}
                   latestCreatinine={latestCreatinine}
+                  targetInrHistory={targetInrHistory}
                 />
               )}
               {subTab === "graph" && (
@@ -294,6 +306,7 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 }
 
 function MetricsView(props: {
+  patientId: string;
   warfarin: boolean;
   ttr: { ttrPercent: number } | null;
   pinrr: number | null;
@@ -303,8 +316,21 @@ function MetricsView(props: {
   avgIntervalDays: number | null;
   latestHasBled: number | null;
   latestCreatinine: LabResult | null;
+  targetInrHistory: TargetInrHistoryEntry[];
 }) {
-  const { warfarin, ttr, pinrr, variability, extremeRate, inrCount, avgIntervalDays, latestHasBled, latestCreatinine } = props;
+  const {
+    patientId,
+    warfarin,
+    ttr,
+    pinrr,
+    variability,
+    extremeRate,
+    inrCount,
+    avgIntervalDays,
+    latestHasBled,
+    latestCreatinine,
+    targetInrHistory,
+  } = props;
 
   if (!warfarin) {
     return (
@@ -316,16 +342,73 @@ function MetricsView(props: {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-      <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "\u2014"} />
-      <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "\u2014"} />
-      <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "\u2014"} />
-      <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "\u2014"} />
-      <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "\u2014"} />
-      <MetricCard label="Monitoring interval" value={avgIntervalDays ? `${avgIntervalDays}d avg` : "\u2014"} />
-      <MetricCard label="Readings to date" value={inrCount.toString()} />
-      <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "\u2014"} />
-      <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 18 }}>
+        <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "\u2014"} />
+        <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "\u2014"} />
+        <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "\u2014"} />
+        <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "\u2014"} />
+        <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "\u2014"} />
+        <MetricCard label="Monitoring interval" value={avgIntervalDays ? `${avgIntervalDays}d avg` : "\u2014"} />
+        <MetricCard label="Readings to date" value={inrCount.toString()} />
+        <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "\u2014"} />
+        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+      </div>
+      <TargetInrPanel patientId={patientId} history={targetInrHistory} />
+    </div>
+  );
+}
+
+function TargetInrPanel({ patientId, history }: { patientId: string; history: TargetInrHistoryEntry[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const boundUpdate = updateTargetInr.bind(null, patientId);
+  const sorted = [...history].sort((a, b) => (a.effective_date < b.effective_date ? 1 : -1));
+  const current = sorted[0];
+
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showForm ? 10 : 0 }}>
+        <div>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>Target INR</p>
+          <p style={{ fontSize: 15, margin: "2px 0 0" }}>
+            {current ? `${current.target_inr} (${current.target_inr_low}\u2013${current.target_inr_high})` : "\u2014"}
+          </p>
+        </div>
+        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Update at this visit"}</SmallButton>
+      </div>
+
+      {showForm && (
+        <form
+          action={async (fd) => {
+            await boundUpdate(fd);
+            setShowForm(false);
+          }}
+          style={{ display: "flex", gap: 10, alignItems: "flex-end", marginTop: 10 }}
+        >
+          <FieldWrap width={120}>
+            <label style={labelStyle}>New target INR</label>
+            <input name="target_inr" type="number" step="0.1" required style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap width={150}>
+            <label style={labelStyle}>Effective from</label>
+            <input name="effective_date" type="date" style={inputStyle} />
+          </FieldWrap>
+          <div style={{ marginBottom: 10 }}>
+            <SmallButton type="submit">Save</SmallButton>
+          </div>
+        </form>
+      )}
+
+      {sorted.length > 1 && (
+        <div style={{ marginTop: 12, borderTop: "0.5px solid var(--border)", paddingTop: 10 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
+          {sorted.map((t) => (
+            <p key={t.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
+              {t.target_inr} ({t.target_inr_low}\u2013{t.target_inr_high}) from {t.effective_date}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -381,10 +464,10 @@ function SimpleSparkline({ points, stepped }: { points: number[]; stepped?: bool
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height: 110 }}>
-      <polyline points={path} fill="none" stroke="#2a78d6" strokeWidth={2} />
+      <polyline points={path} fill="none" stroke="var(--text-accent)" strokeWidth={2} />
       {coords.map((c, i) => {
         const [x, y] = c.split(",");
-        return <circle key={i} cx={x} cy={y} r={3} fill="#2a78d6" />;
+        return <circle key={i} cx={x} cy={y} r={3} fill="var(--text-accent)" />;
       })}
     </svg>
   );

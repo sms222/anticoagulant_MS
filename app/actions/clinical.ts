@@ -8,6 +8,36 @@ function path(patientId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Target INR — single value, auto ±0.5 range, tracked as a history so TTR
+// reflects whichever range was actually in force on a given day
+// ---------------------------------------------------------------------------
+export async function updateTargetInr(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const targetInr = Number(formData.get("target_inr"));
+  if (!targetInr || Number.isNaN(targetInr)) throw new Error("Enter a target INR value");
+  const targetInrLow = Math.round((targetInr - 0.5) * 10) / 10;
+  const targetInrHigh = Math.round((targetInr + 0.5) * 10) / 10;
+  const effectiveDate = (formData.get("effective_date") as string) || new Date().toISOString().slice(0, 10);
+
+  const { error: historyError } = await supabase.from("target_inr_history").insert({
+    patient_id: patientId,
+    target_inr: targetInr,
+    target_inr_low: targetInrLow,
+    target_inr_high: targetInrHigh,
+    effective_date: effectiveDate,
+  });
+  if (historyError) throw new Error("Could not record target INR change: " + historyError.message);
+
+  const { error: patientError } = await supabase
+    .from("patients")
+    .update({ target_inr_low: targetInrLow, target_inr_high: targetInrHigh })
+    .eq("id", patientId);
+  if (patientError) throw new Error("Could not update patient's current target: " + patientError.message);
+
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
 // Contacts — single free-text field on patients
 // ---------------------------------------------------------------------------
 export async function updateEmergencyContact(patientId: string, formData: FormData) {

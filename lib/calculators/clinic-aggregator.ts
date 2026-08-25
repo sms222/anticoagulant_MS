@@ -32,7 +32,7 @@ export function calculateClinicWideMetrics(patients: PatientSummary[]): ClinicWi
   const noacCount = totalActivePatients - warfarinPatients.length;
 
   const ttrResults = warfarinPatients.map((p) =>
-    calculateRosendaalTTR(p.inrReadings, p.targetLow, p.targetHigh)
+    calculateRosendaalTTR(p.inrReadings, [{ from: new Date(0), low: p.targetLow, high: p.targetHigh }])
   );
 
   const clinicAverageTtr =

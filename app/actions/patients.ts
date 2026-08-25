@@ -8,6 +8,15 @@ export async function createPatient(formData: FormData) {
 
   const anticoagulantType = formData.get("anticoagulant_type") as string;
   const isWarfarin = anticoagulantType === "warfarin";
+  const indication = formData.get("indication") as string;
+
+  // Single target INR value on intake — range is auto-derived (±0.5) rather
+  // than asking for low/high separately. See target_inr_history for how
+  // later changes get tracked.
+  const targetInrRaw = formData.get("target_inr") as string;
+  const targetInr = isWarfarin && targetInrRaw ? Number(targetInrRaw) : null;
+  const targetInrLow = targetInr !== null ? Math.round((targetInr - 0.5) * 10) / 10 : null;
+  const targetInrHigh = targetInr !== null ? Math.round((targetInr + 0.5) * 10) / 10 : null;
 
   const { data, error } = await supabase
     .from("patients")
@@ -17,13 +26,14 @@ export async function createPatient(formData: FormData) {
       sex: (formData.get("sex") as string) || null,
       weight_kg: formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null,
       height_cm: formData.get("height_cm") ? Number(formData.get("height_cm")) : null,
-      indication: formData.get("indication") as string,
+      indication,
+      indication_detail: indication === "other" ? (formData.get("indication_detail") as string) || null : null,
       anticoagulant_type: anticoagulantType,
-      target_inr_low: isWarfarin && formData.get("target_inr_low") ? Number(formData.get("target_inr_low")) : null,
-      target_inr_high: isWarfarin && formData.get("target_inr_high") ? Number(formData.get("target_inr_high")) : null,
+      target_inr_low: targetInrLow,
+      target_inr_high: targetInrHigh,
       phone: (formData.get("phone") as string) || null,
       address: (formData.get("address") as string) || null,
-      risk_class: (formData.get("risk_class") as string) || null,
+      notes: (formData.get("notes") as string) || null,
       status: "active",
     })
     .select("id")
@@ -31,6 +41,16 @@ export async function createPatient(formData: FormData) {
 
   if (error || !data) {
     throw new Error("Could not create patient: " + (error?.message ?? "unknown error"));
+  }
+
+  if (targetInr !== null && targetInrLow !== null && targetInrHigh !== null) {
+    await supabase.from("target_inr_history").insert({
+      patient_id: data.id,
+      target_inr: targetInr,
+      target_inr_low: targetInrLow,
+      target_inr_high: targetInrHigh,
+      effective_date: new Date().toISOString().slice(0, 10),
+    });
   }
 
   redirect(`/patients/${data.id}`);

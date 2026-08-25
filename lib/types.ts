@@ -102,6 +102,36 @@ export interface PatientDocument {
   added_at: string;
 }
 
+export interface TargetInrHistoryEntry {
+  id: string;
+  patient_id: string;
+  target_inr: number;
+  target_inr_low: number;
+  target_inr_high: number;
+  effective_date: string;
+}
+
+export interface FollowUpStatus {
+  patient_id: string;
+  next_appt_date: string | null;
+  last_encounter_date: string;
+}
+
+export const INDICATION_OPTIONS: { value: string; label: string }[] = [
+  { value: "af_nonvalvular", label: "AF \u2013 Nonvalvular" },
+  { value: "af_valvular", label: "AF \u2013 Valvular" },
+  { value: "mechanical_valve", label: "Mechanical valve" },
+  { value: "vte_dvt", label: "VTE \u2013 DVT" },
+  { value: "vte_pe", label: "VTE \u2013 PE" },
+  { value: "other", label: "Other" },
+];
+
+export function formatIndication(indication: string, detail?: string | null): string {
+  const known = INDICATION_OPTIONS.find((o) => o.value === indication);
+  if (indication === "other" && detail) return detail;
+  return known ? known.label : indication.replace(/_/g, " ");
+}
+
 export const EMERGENCY_CONTACT_TEMPLATE = `Next of kin:
 Relationship:
 Phone:

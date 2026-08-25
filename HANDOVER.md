@@ -1,5 +1,5 @@
 # ACMS — Anticoagulation Management System
-## Handover document — 24 August 2026 (updated 25 August 2026 — see §11)
+## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12)
 
 For: UKM / Hospital Canselor Tuanku Muhriz anticoagulation clinic pharmacy team
 Owner: Shamin Mohd Saffian
@@ -200,3 +200,71 @@ nothing was pushed automatically. Diff the zip against the repo before pushing.
 Everything above was built collaboratively with Claude across sessions on 24–25 August
 2026 — full reasoning and back-and-forth is in that conversation history if context on
 *why* a decision was made is needed later.
+
+---
+
+## 12. Second session — 25 August 2026: intake form fixes + theme + home page
+
+Follow-up round after the requester reviewed the intake form and flagged several things.
+Applied directly against the live Supabase project again.
+
+**12.1 Indication** — "Other" now reveals a free-text box (`patients.indication_detail`,
+was already a column, just not wired into the form). Dropdown labels show abbreviations
+in caps: "AF – Nonvalvular", "VTE – DVT", etc. (`INDICATION_OPTIONS` /
+`formatIndication()` in `lib/types.ts`).
+
+**12.2 Target INR** — Intake now asks for a single value instead of low/high. Range is
+auto-derived as **±0.5** (e.g. 2.5 → 2.0–3.0 — the requester's choice over a tighter
+±0.25 or no auto-range). New `target_inr_history` table records every change with an
+effective date; `patients.target_inr_low/high` always holds the current range for quick
+reads. `calculateRosendaalTTR`/`calculatePINRR` in `lib/calculators/rosendaal.ts` were
+changed to take a list of time-bound ranges instead of one fixed range, so TTR is
+computed against whichever target was actually in force on each day — a change made at
+a later visit doesn't get retroactively applied to earlier days. Existing patients were
+backfilled with one history row each (dated to intake) so nothing broke.
+
+A control to update the target INR ("Update at this visit") lives in Dosing → Metrics,
+below the metric cards, with the change history listed underneath. **Not done:** the
+INR graph doesn't visually shade the changing target band over time — it wasn't in
+scope for this round. If that's wanted, it's a real SVG-layering task, not a quick add.
+
+**12.3 Risk class** — Removed from the intake form. The column and sidebar chip still
+exist; there's just still no edit flow to set it post-intake (same gap as before —
+nothing changed there).
+
+**12.4 Notes** — Added a free-text field to intake, writing to `patients.notes` (column
+already existed, wasn't in the form).
+
+**12.5 Theme** — Accent color changed from blue to a "blood red" (`--text-accent`,
+`--border-accent`, `--fill-accent` in `app/globals.css`). Kept a separate `--text-info`
+/ `--bg-info` (blue-grey) for the "in progress" appointment status specifically, so it
+doesn't visually read as urgent/danger next to the new red accent.
+
+The "faded" form controls were a real bug, not a design choice: Tailwind's preflight
+strips native input/select/textarea styling, and the intake form never set its own —
+so every field had zero visible border in most browsers. Added base styles for
+`input`/`select`/`textarea` (border, background, padding, red focus ring) in
+`globals.css`, applying everywhere, not just the intake form.
+
+**12.6 Persistent header** — Added a slim header in `app/layout.tsx` on every page:
+brand name + "← Back to queue", always visible rather than only at the bottom of the
+patient chart.
+
+**12.7 Home page** — Rebuilt with, per the requester's picks:
+- **Defaulted patients** — flagged when the latest encounter's `next_appt_date` is in
+  the past (new `patient_followup_status` DB view, latest encounter per patient).
+- **Upcoming checks due** — same view, `next_appt_date` within the next 7 days. There's
+  no separate "lab due" tracking yet, so this uses next appointment as the proxy — flag
+  if that's not accurate enough.
+- **Patient search** — client-side filter by name/MRN (`components/home/PatientSearch.tsx`),
+  since ~300–400 patients is small enough that fetching them all and filtering in the
+  browser is simpler than adding server-side search for now.
+
+**12.8 Not done from this round**
+- Appointment check-in UI (still gap 2, §8).
+- Encounters/dosing edit flow (still disabled Save button).
+- Visual shading of historical target ranges on the INR graph (12.2).
+- Risk class still has no way to be set after intake.
+
+**12.9 Delivery note** — Same as §11.7: applied to the live Supabase project directly,
+packaged as a zip, not pushed to GitHub (no write access in this session).
