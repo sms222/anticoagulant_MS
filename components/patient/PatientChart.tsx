@@ -58,7 +58,7 @@ import {
 import { INDICATION_OPTIONS, COMORBIDITY_OPTIONS, ETHNICITY_OPTIONS, SMOKING_STATUS_OPTIONS, NOAC_DOSING, LAB_TEST_CATALOG, LAB_CATEGORIES } from "@/lib/types";
 
 type TopTab = "dosing" | "labs" | "contacts" | "notes" | "drugs" | "events" | "reminders";
-type SubTab = "metrics" | "graph" | "history" | "notes";
+type SubTab = "metrics" | "graph" | "history";
 
 export function PatientChart({
   patient,
@@ -200,7 +200,6 @@ export function PatientChart({
                   pharmacists={pharmacists}
                 />
               )}
-              {subTab === "notes" && <NotesView encounters={encounters} />}
             </>
           )}
           {topTab === "labs" && <LabsView patientId={patient.id} allLabs={allLabs} />}
@@ -308,10 +307,12 @@ function PatientDetailsSidebar({
         </button>
       </div>
       <SidebarField label="Phone" value={patient.phone ?? "—"} />
-      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <SidebarField label="Age" value={age?.toString() ?? "—"} />
         <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "—"} />
         <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "—"} />
+        <SidebarField label="Smoking" value={SMOKING_STATUS_OPTIONS.find((o) => o.value === patient.smoking_status)?.label ?? "—"} />
+        <SidebarField label="Alcohol excess" value={patient.alcohol_excess ? "Yes" : "No"} />
       </div>
       <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
         <SidebarField label="Diagnosis" value={formatIndication(patient.indication, patient.indication_detail)} />
@@ -393,7 +394,6 @@ function SubTabBar({ subTab, setSubTab }: { subTab: SubTab; setSubTab: (t: SubTa
     { key: "metrics", label: "Metrics" },
     { key: "graph", label: "Graph" },
     { key: "history", label: "History" },
-    { key: "notes", label: "Notes" },
   ];
   return (
     <div style={{ display: "flex", gap: 16, borderBottom: "0.5px solid var(--border)", marginBottom: 12, fontSize: 13 }}>
@@ -532,10 +532,6 @@ function MetricsView(props: {
           <HasBledPanel patientId={patientId} results={hasBledResults} hasComorbidities={hasComorbidities} />
         </div>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <Cha2ds2VascPanel patientId={patientId} results={chadsVascResults} hasComorbidities={hasComorbidities} />
-        </div>
-        <div style={{ flex: 1, minWidth: 260 }}>
-
           <Cha2ds2VascPanel patientId={patientId} results={chadsVascResults} hasComorbidities={hasComorbidities} />
         </div>
         <div style={{ flex: 1, minWidth: 260 }}>
@@ -722,12 +718,13 @@ function HasBledPanel({
           </p>
         </div>
         <form action={boundAdd}>
-          <SmallButton type="submit">Recalculate</SmallButton>
+          <SmallButton type="submit">Recalculate now</SmallButton>
         </form>
       </div>
       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0" }}>
         Computed from age, this patient's own TTR, active medications, and the comorbidities/alcohol
-        recorded below — nothing entered here directly.
+        recorded below — nothing entered here directly. Updates automatically whenever one of those
+        changes; use the button only to force a fresh dated entry without changing anything.
         {!hasComorbidities && " No comorbidities recorded yet, so this will likely undercount."}
       </p>
 
@@ -777,11 +774,13 @@ function Cha2ds2VascPanel({
           </p>
         </div>
         <form action={boundAdd}>
-          <SmallButton type="submit">Recalculate</SmallButton>
+          <SmallButton type="submit">Recalculate now</SmallButton>
         </form>
       </div>
       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0" }}>
         Computed from age, sex, and the comorbidities recorded below — nothing entered here directly.
+        Updates automatically whenever comorbidities change; use the button only to force a fresh dated
+        entry without changing anything.
         {!hasComorbidities && " No comorbidities recorded yet, so this will likely undercount."}
       </p>
 
@@ -1343,22 +1342,6 @@ function LabResultFields({ lab }: { lab?: LabResult }) {
         <label style={labelStyle}>Date</label>
         <input name="test_date" type="date" defaultValue={lab?.test_date} required style={inputStyle} />
       </FieldWrap>
-    </div>
-  );
-}
-
-function NotesView({ encounters }: { encounters: Encounter[] }) {
-  return (
-    <div>
-      {encounters.map((e) => (
-        <div key={e.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "0.5px solid var(--border)" }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px", fontWeight: 500 }}>
-            {formatDateDisplay(e.encounter_date)}
-            {e.room ? ` · ${e.room}` : ""}
-          </p>
-          <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0 }}>{e.notes || "No notes recorded for this visit."}</p>
-        </div>
-      ))}
     </div>
   );
 }

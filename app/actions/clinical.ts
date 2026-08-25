@@ -8,6 +8,110 @@ function path(patientId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// HAS-BLED / CHA2DS2-VASc auto-recalculation. These run silently after any
+// save that touches one of their inputs (comorbidities, alcohol excess,
+// target INR, INR labs, active medications) so the score always reflects the
+// patient's current variables without a manual click. A new dated row is
+// only written when the computed score actually changes from the latest one
+// on file — otherwise every routine save would spam identical rows and the
+// history would stop meaning "this is when it changed."
+// ---------------------------------------------------------------------------
+async function recalcHasBled(supabase: ReturnType<typeof createServerClient>, patientId: string) {
+  const [{ data: patient }, { data: medications }, { data: inrLabs }, { data: targetHistory }, { data: toolDef }, { data: latest }] =
+    await Promise.all([
+      supabase
+        .from("patients")
+        .select("date_of_birth, target_inr_low, target_inr_high, intake_date, comorbidities, alcohol_excess")
+        .eq("id", patientId)
+        .single(),
+      supabase.from("medications").select("drug_name").eq("patient_id", patientId).eq("active", true),
+      supabase.from("lab_results").select("result_value, test_date").eq("patient_id", patientId).eq("test_name", "INR"),
+      supabase.from("target_inr_history").select("target_inr_low, target_inr_high, effective_date").eq("patient_id", patientId),
+      supabase.from("scoring_tool_definitions").select("id").eq("tool_name", "HAS-BLED").single(),
+      supabase
+        .from("scoring_tool_results")
+        .select("score_value, scoring_tool_definitions!inner(tool_name)")
+        .eq("patient_id", patientId)
+        .eq("scoring_tool_definitions.tool_name", "HAS-BLED")
+        .order("score_date", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+  if (!patient || !toolDef) return;
+
+  const { calculateAge } = await import("@/lib/types");
+  const { calculateRosendaalTTR } = await import("@/lib/calculators/rosendaal");
+  const { calculateHasBled, detectInteractingDrugs, hasBledInputsFromComorbidities } = await import(
+    "@/lib/calculators/has-bled"
+  );
+
+  const age = calculateAge(patient.date_of_birth);
+  const elderly = age !== null && age > 65;
+
+  const ranges =
+    (targetHistory ?? []).length > 0
+      ? (targetHistory ?? []).map((t) => ({
+          from: new Date(t.effective_date),
+          low: Number(t.target_inr_low),
+          high: Number(t.target_inr_high),
+        }))
+      : patient.target_inr_low && patient.target_inr_high
+      ? [{ from: new Date(patient.intake_date), low: Number(patient.target_inr_low), high: Number(patient.target_inr_high) }]
+      : [];
+
+  const readings = (inrLabs ?? []).map((l) => ({ date: new Date(l.test_date), value: Number(l.result_value) }));
+  const ttr = ranges.length > 0 ? calculateRosendaalTTR(readings, ranges) : null;
+  const labileInr = ttr !== null && readings.length >= 2 && ttr.ttrPercent < 60;
+
+  const interactingDrugs = detectInteractingDrugs((medications ?? []).map((m) => m.drug_name));
+  const manualInputs = hasBledInputsFromComorbidities(patient.comorbidities ?? [], patient.alcohol_excess ?? false);
+  const result = calculateHasBled(manualInputs, { elderly, labileInr, interactingDrugs });
+
+  if (latest && latest.score_value === result.score) return; // unchanged — don't write a duplicate row
+
+  await supabase.from("scoring_tool_results").insert({
+    patient_id: patientId,
+    tool_id: toolDef.id,
+    score_date: new Date().toISOString().slice(0, 10),
+    score_value: result.score,
+    components: result.components,
+  });
+}
+
+async function recalcCha2ds2Vasc(supabase: ReturnType<typeof createServerClient>, patientId: string) {
+  const [{ data: patient }, { data: toolDef }, { data: latest }] = await Promise.all([
+    supabase.from("patients").select("date_of_birth, sex, comorbidities").eq("id", patientId).single(),
+    supabase.from("scoring_tool_definitions").select("id").eq("tool_name", "CHA2DS2-VASc").single(),
+    supabase
+      .from("scoring_tool_results")
+      .select("score_value, scoring_tool_definitions!inner(tool_name)")
+      .eq("patient_id", patientId)
+      .eq("scoring_tool_definitions.tool_name", "CHA2DS2-VASc")
+      .order("score_date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (!patient || !toolDef) return;
+
+  const { calculateAge } = await import("@/lib/types");
+  const { calculateCha2ds2Vasc, cha2ds2VascFromComorbidities } = await import("@/lib/calculators/cha2ds2-vasc");
+
+  const age = calculateAge(patient.date_of_birth);
+  const factors = cha2ds2VascFromComorbidities(patient.comorbidities ?? [], age, patient.sex);
+  const result = calculateCha2ds2Vasc(factors);
+
+  if (latest && latest.score_value === result.score) return; // unchanged — don't write a duplicate row
+
+  await supabase.from("scoring_tool_results").insert({
+    patient_id: patientId,
+    tool_id: toolDef.id,
+    score_date: new Date().toISOString().slice(0, 10),
+    score_value: result.score,
+    components: result.components,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Target INR — single value, auto ±0.5 range, tracked as a history so TTR
 // reflects whichever range was actually in force on a given day
 // ---------------------------------------------------------------------------
@@ -34,6 +138,7 @@ export async function updateTargetInr(patientId: string, formData: FormData) {
     .eq("id", patientId);
   if (patientError) throw new Error("Could not update patient's current target: " + patientError.message);
 
+  await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
@@ -105,37 +210,43 @@ export async function updatePatientDetails(patientId: string, formData: FormData
 // ---------------------------------------------------------------------------
 export async function addLabResult(patientId: string, formData: FormData) {
   const supabase = createServerClient();
+  const testName = formData.get("test_name") as string;
   const { error } = await supabase.from("lab_results").insert({
     patient_id: patientId,
-    test_name: formData.get("test_name") as string,
+    test_name: testName,
     result_value: Number(formData.get("result_value")),
     unit: (formData.get("unit") as string) || null,
     test_date: (formData.get("test_date") as string) || new Date().toISOString().slice(0, 10),
     source: "manual",
   });
   if (error) throw new Error("Could not add lab result: " + error.message);
+  if (testName === "INR") await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
 export async function updateLabResult(patientId: string, labId: string, formData: FormData) {
   const supabase = createServerClient();
+  const testName = formData.get("test_name") as string;
   const { error } = await supabase
     .from("lab_results")
     .update({
-      test_name: formData.get("test_name") as string,
+      test_name: testName,
       result_value: Number(formData.get("result_value")),
       unit: (formData.get("unit") as string) || null,
       test_date: formData.get("test_date") as string,
     })
     .eq("id", labId);
   if (error) throw new Error("Could not update lab result: " + error.message);
+  if (testName === "INR") await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
 export async function deleteLabResult(patientId: string, labId: string) {
   const supabase = createServerClient();
+  const { data: lab } = await supabase.from("lab_results").select("test_name").eq("id", labId).single();
   const { error } = await supabase.from("lab_results").delete().eq("id", labId);
   if (error) throw new Error("Could not delete lab result: " + error.message);
+  if (lab?.test_name === "INR") await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
@@ -176,11 +287,13 @@ export async function updateEncounter(patientId: string, encounterId: string, fo
 }
 
 // ---------------------------------------------------------------------------
-// HAS-BLED — the score is never entered directly. The engine asks only for
-// the variables it can't derive itself (hypertension, abnormal renal/liver
-// function, stroke history, bleeding history, alcohol excess) and computes
-// the rest (elderly from DOB, labile INR from this patient's own TTR, drug
-// interactions from the active medications list).
+// HAS-BLED / CHA2DS2-VASc — the score is never entered directly, and now
+// recalculates automatically whenever an input changes (see recalcHasBled /
+// recalcCha2ds2Vasc above, wired into updatePatientRiskFactors, updateTargetInr,
+// lab-result actions, and medication actions below). These "Recalculate now"
+// buttons stay as a manual fallback that always writes a fresh dated entry,
+// even if the score hasn't moved — useful to confirm the score is current as
+// of today without needing to change anything first.
 // ---------------------------------------------------------------------------
 export async function addHasBledAssessment(patientId: string) {
   const supabase = createServerClient();
@@ -274,7 +387,8 @@ export async function addCha2ds2VascAssessment(patientId: string) {
 // ---------------------------------------------------------------------------
 // Demographics/risk-factor fields — ethnicity, smoking, comorbidities,
 // alcohol excess. Separate from updatePatientDetails so this panel can save
-// independently.
+// independently. Comorbidities/alcohol feed both HAS-BLED and CHA2DS2-VASc
+// directly, so both auto-recalculate here.
 // ---------------------------------------------------------------------------
 export async function updatePatientRiskFactors(patientId: string, formData: FormData) {
   const supabase = createServerClient();
@@ -289,6 +403,7 @@ export async function updatePatientRiskFactors(patientId: string, formData: Form
     })
     .eq("id", patientId);
   if (error) throw new Error("Could not update risk factors: " + error.message);
+  await Promise.all([recalcHasBled(supabase, patientId), recalcCha2ds2Vasc(supabase, patientId)]);
   revalidatePath(path(patientId));
 }
 
@@ -322,6 +437,7 @@ export async function addMedication(patientId: string, formData: FormData) {
     notes: (formData.get("notes") as string) || null,
   });
   if (error) throw new Error("Could not add medication: " + error.message);
+  await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
@@ -340,6 +456,7 @@ export async function updateMedication(patientId: string, medicationId: string, 
     })
     .eq("id", medicationId);
   if (error) throw new Error("Could not update medication: " + error.message);
+  await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
@@ -350,6 +467,7 @@ export async function discontinueMedication(patientId: string, medicationId: str
     .update({ active: false, stop_date: new Date().toISOString().slice(0, 10) })
     .eq("id", medicationId);
   if (error) throw new Error("Could not discontinue medication: " + error.message);
+  await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 
@@ -357,6 +475,7 @@ export async function deleteMedication(patientId: string, medicationId: string) 
   const supabase = createServerClient();
   const { error } = await supabase.from("medications").delete().eq("id", medicationId);
   if (error) throw new Error("Could not delete medication: " + error.message);
+  await recalcHasBled(supabase, patientId);
   revalidatePath(path(patientId));
 }
 

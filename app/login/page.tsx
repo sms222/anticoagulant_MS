@@ -81,6 +81,9 @@ export default function LoginPage() {
       <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 16 }}>
         New here? <a href="/signup">Create an account</a>
       </p>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 8 }}>
+        Just want to look around? <a href="/demo">Try the demo</a> — no account needed, nothing is saved.
+      </p>
     </main>
   );
 }

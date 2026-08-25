@@ -52,6 +52,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           >
             &larr; Back to queue
           </Link>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
+            {new Date().toLocaleString("en-MY", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
         </header>
 
         {/* This is the only scrollable region in the app — header and footer
