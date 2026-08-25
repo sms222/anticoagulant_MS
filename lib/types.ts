@@ -160,11 +160,11 @@ export interface FollowUpStatus {
 }
 
 export const INDICATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "af_nonvalvular", label: "AF \u2013 Nonvalvular" },
-  { value: "af_valvular", label: "AF \u2013 Valvular" },
+  { value: "af_nonvalvular", label: "AF – Nonvalvular" },
+  { value: "af_valvular", label: "AF – Valvular" },
   { value: "mechanical_valve", label: "Mechanical valve" },
-  { value: "vte_dvt", label: "VTE \u2013 DVT" },
-  { value: "vte_pe", label: "VTE \u2013 PE" },
+  { value: "vte_dvt", label: "VTE – DVT" },
+  { value: "vte_pe", label: "VTE – PE" },
   { value: "other", label: "Other" },
 ];
 

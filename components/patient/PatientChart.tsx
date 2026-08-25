@@ -15,6 +15,7 @@ import type {
   Pharmacist,
 } from "@/lib/types";
 import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
+import { formatDateDisplay } from "@/lib/format";
 import {
   calculateRosendaalTTR,
   calculatePINRR,
@@ -135,9 +136,9 @@ export function PatientChart({
       <div style={{ padding: "14px 18px", borderBottom: "0.5px solid var(--border)" }}>
         <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{patient.name}</p>
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-          {patient.date_of_birth ? `DOB ${patient.date_of_birth}` : ""}
-          {patient.mrn ? ` \u00b7 ID ${patient.mrn}` : ""}
-          {patient.address ? ` \u00b7 ${patient.address}` : ""}
+          {patient.date_of_birth ? `DOB ${formatDateDisplay(patient.date_of_birth)}` : ""}
+          {patient.mrn ? ` · ID ${patient.mrn}` : ""}
+          {patient.address ? ` · ${patient.address}` : ""}
         </p>
       </div>
 
@@ -295,19 +296,19 @@ function PatientDetailsSidebar({
           Edit
         </button>
       </div>
-      <SidebarField label="Phone" value={patient.phone ?? "\u2014"} />
+      <SidebarField label="Phone" value={patient.phone ?? "—"} />
       <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-        <SidebarField label="Age" value={age?.toString() ?? "\u2014"} />
-        <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "\u2014"} />
-        <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "\u2014"} />
+        <SidebarField label="Age" value={age?.toString() ?? "—"} />
+        <SidebarField label="Weight" value={patient.weight_kg ? `${patient.weight_kg}kg` : "—"} />
+        <SidebarField label="Height" value={patient.height_cm ? `${patient.height_cm}cm` : "—"} />
       </div>
       <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 12 }}>
         <SidebarField label="Diagnosis" value={formatIndication(patient.indication, patient.indication_detail)} />
         {warfarin && (
-          <SidebarField label="Target range" value={`${patient.target_inr_low}\u2013${patient.target_inr_high}`} />
+          <SidebarField label="Target range" value={`${patient.target_inr_low}–${patient.target_inr_high}`} />
         )}
         <SidebarField label="Anticoagulant" value={patient.anticoagulant_type} />
-        <SidebarField label="Start date" value={patient.intake_date} />
+        <SidebarField label="Start date" value={formatDateDisplay(patient.intake_date)} />
       </div>
     </div>
   );
@@ -415,8 +416,8 @@ function MetricsView(props: {
     return (
       <div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
-          <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "\u2014"} />
-          <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+          <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "—"} />
+          <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
         </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 260 }}>
@@ -433,15 +434,15 @@ function MetricsView(props: {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
-        <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "\u2014"} />
-        <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "\u2014"} />
-        <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "\u2014"} />
-        <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "\u2014"} />
-        <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "\u2014"} />
-        <MetricCard label="Monitoring interval" value={avgIntervalDays ? `${avgIntervalDays}d avg` : "\u2014"} />
+        <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "—"} />
+        <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "—"} />
+        <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "—"} />
+        <MetricCard label="SD-INR" value={variability ? variability.standardDeviation.toFixed(2) : "—"} />
+        <MetricCard label="Mean INR" value={variability ? variability.mean.toFixed(1) : "—"} />
+        <MetricCard label="Monitoring interval" value={avgIntervalDays ? `${avgIntervalDays}d avg` : "—"} />
         <MetricCard label="Readings to date" value={inrCount.toString()} />
-        <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "\u2014"} />
-        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
+        <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "—"} />
+        <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 260 }}>
@@ -470,7 +471,7 @@ function BiometricsPanel({ patientId, history }: { patientId: string; history: B
         <div>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>Weight / height</p>
           <p style={{ fontSize: 15, margin: "2px 0 0" }}>
-            {current ? `${current.weight_kg ?? "\u2014"}kg \u00b7 ${current.height_cm ?? "\u2014"}cm` : "\u2014"}
+            {current ? `${current.weight_kg ?? "—"}kg · ${current.height_cm ?? "—"}cm` : "—"}
           </p>
         </div>
         <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Update at this visit"}</SmallButton>
@@ -507,7 +508,7 @@ function BiometricsPanel({ patientId, history }: { patientId: string; history: B
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
           {sorted.map((b) => (
             <p key={b.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
-              {b.weight_kg ?? "\u2014"}kg \u00b7 {b.height_cm ?? "\u2014"}cm on {b.effective_date}
+              {b.weight_kg ?? "—"}kg · {b.height_cm ?? "—"}cm on {formatDateDisplay(b.effective_date)}
             </p>
           ))}
         </div>
@@ -528,7 +529,7 @@ function HasBledPanel({ patientId, results }: { patientId: string; results: Scor
         <div>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>HAS-BLED (bleeding risk)</p>
           <p style={{ fontSize: 15, margin: "2px 0 0" }}>
-            {latest ? `${latest.score_value} / 9 (${latest.score_date})` : "\u2014 no assessment yet"}
+            {latest ? `${latest.score_value} / 9 (${latest.score_date})` : "— no assessment yet"}
           </p>
         </div>
         <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New assessment"}</SmallButton>
@@ -544,7 +545,7 @@ function HasBledPanel({ patientId, results }: { patientId: string; results: Scor
         >
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px" }}>
             Elderly (age), labile INR, and interacting drugs are computed automatically from this
-            patient's own data \u2014 only tick what the engine can't already know.
+            patient's own data — only tick what the engine can't already know.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
             <CheckboxField name="hypertension" label="Hypertension (uncontrolled, SBP > 160)" />
@@ -552,7 +553,7 @@ function HasBledPanel({ patientId, results }: { patientId: string; results: Scor
             <CheckboxField name="abnormalLiver" label="Abnormal liver function (cirrhosis/LFTs >3x)" />
             <CheckboxField name="strokeHistory" label="Prior stroke" />
             <CheckboxField name="bleedingHistory" label="Bleeding history or predisposition" />
-            <CheckboxField name="alcoholExcess" label="Alcohol excess (\u22658 units/week)" />
+            <CheckboxField name="alcoholExcess" label="Alcohol excess (≥8 units/week)" />
           </div>
           <SmallButton type="submit">Calculate & save</SmallButton>
         </form>
@@ -563,11 +564,11 @@ function HasBledPanel({ patientId, results }: { patientId: string; results: Scor
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
           {sorted.map((r) => (
             <p key={r.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
-              {r.score_value} / 9 on {r.score_date}
+              {r.score_value} / 9 on {formatDateDisplay(r.score_date)}
               {r.components ? (
                 <span style={{ color: "var(--text-muted)" }}>
                   {" "}
-                  \u2014 {Object.entries(r.components)
+                  — {Object.entries(r.components)
                     .filter(([, v]) => v === true)
                     .map(([k]) => k)
                     .join(", ") || "no positive factors"}
@@ -602,7 +603,7 @@ function TargetInrPanel({ patientId, history }: { patientId: string; history: Ta
         <div>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>Target INR</p>
           <p style={{ fontSize: 15, margin: "2px 0 0" }}>
-            {current ? `${current.target_inr} (${current.target_inr_low}\u2013${current.target_inr_high})` : "\u2014"}
+            {current ? `${current.target_inr} (${current.target_inr_low}–${current.target_inr_high})` : "—"}
           </p>
         </div>
         <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Update at this visit"}</SmallButton>
@@ -635,7 +636,7 @@ function TargetInrPanel({ patientId, history }: { patientId: string; history: Ta
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
           {sorted.map((t) => (
             <p key={t.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
-              {t.target_inr} ({t.target_inr_low}\u2013{t.target_inr_high}) from {t.effective_date}
+              {t.target_inr} ({t.target_inr_low}–{t.target_inr_high}) from {formatDateDisplay(t.effective_date)}
             </p>
           ))}
         </div>
@@ -679,7 +680,7 @@ function GraphView({
         <>
           <p style={{ fontSize: 13, fontWeight: 500, margin: "24px 0 4px" }}>Quality measures over time</p>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 12px" }}>
-            Each point is computed cumulatively up to that visit \u2014 not a single end-of-course number.
+            Each point is computed cumulatively up to that visit — not a single end-of-course number.
           </p>
 
           {rollingTtr.length > 0 && (
@@ -844,22 +845,22 @@ function HistoryView({
               }
               return (
                 <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
-                  <td style={tdStyle}>{e.encounter_date}</td>
-                  <td style={tdStyle}>{bar ? bar.value : "\u2014"}</td>
-                  <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "\u2014"}</td>
-                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "\u2014"}</td>
-                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.seen_by_name ?? "\u2014"}</td>
+                  <td style={tdStyle}>{formatDateDisplay(e.encounter_date)}</td>
+                  <td style={tdStyle}>{bar ? bar.value : "—"}</td>
+                  <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "—"}</td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "—"}</td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.seen_by_name ?? "—"}</td>
                   <td style={tdStyle}>
                     {bar ? (
                       <div style={{ background: "var(--surface-1)", borderRadius: 3, height: 8, width: "100%", overflow: "hidden" }}>
                         <div style={{ background: bar.color, height: "100%", width: `${bar.pct}%` }} />
                       </div>
                     ) : (
-                      "\u2014"
+                      "—"
                     )}
                   </td>
                   <td style={{ ...tdStyle, color: "var(--text-secondary)", fontSize: 11 }}>
-                    {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "\u2026" : "") : ""}
+                    {e.notes ? e.notes.slice(0, 40) + (e.notes.length > 40 ? "…" : "") : ""}
                   </td>
                   <td style={tdStyle}>
                     <SmallButton onClick={() => setEditingId(e.id)}>Edit</SmallButton>
@@ -892,7 +893,7 @@ function EncounterFields({ encounter, pharmacists }: { encounter?: Encounter; ph
       <FieldWrap width={150}>
         <label style={labelStyle}>Seen by</label>
         <select name="seen_by" defaultValue={encounter?.seen_by ?? ""} style={inputStyle}>
-          <option value="">\u2014</option>
+          <option value="">—</option>
           {pharmacists.map((p) => (
             <option key={p.id} value={p.id}>
               {p.full_name}
@@ -952,7 +953,7 @@ function LabsView({
           fontSize: 13,
         }}
       >
-        Paste a lab screenshot here to auto-fill results \u2014 not wired up yet, pending AI pipeline approval
+        Paste a lab screenshot here to auto-fill results — not wired up yet, pending AI pipeline approval
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
@@ -1039,7 +1040,7 @@ function LabsView({
                 }
                 return (
                   <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                    <td style={tdStyle}>{l.test_date}</td>
+                    <td style={tdStyle}>{formatDateDisplay(l.test_date)}</td>
                     <td style={tdStyle}>{l.test_name}</td>
                     <td style={tdStyle}>{l.result_value} {l.unit}</td>
                     <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
@@ -1099,8 +1100,8 @@ function NotesView({ encounters }: { encounters: Encounter[] }) {
       {encounters.map((e) => (
         <div key={e.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: "0.5px solid var(--border)" }}>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 6px", fontWeight: 500 }}>
-            {e.encounter_date}
-            {e.room ? ` \u00b7 ${e.room}` : ""}
+            {formatDateDisplay(e.encounter_date)}
+            {e.room ? ` · ${e.room}` : ""}
           </p>
           <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0 }}>{e.notes || "No notes recorded for this visit."}</p>
         </div>
@@ -1197,7 +1198,7 @@ function ContactsView({ patientId, value }: { patientId: string; value: string |
       }}
     >
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>
-        Next of kin and other emergency contact details. Free text \u2014 edit the template below as needed.
+        Next of kin and other emergency contact details. Free text — edit the template below as needed.
       </p>
       <textarea
         name="emergency_contact_info"
@@ -1207,7 +1208,7 @@ function ContactsView({ patientId, value }: { patientId: string; value: string |
       />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
         <SmallButton type="submit" disabled={isPending}>
-          {isPending ? "Saving\u2026" : "Save"}
+          {isPending ? "Saving…" : "Save"}
         </SmallButton>
         {value && (
           <SmallButton type="button" onClick={() => setEditing(false)}>
@@ -1308,13 +1309,13 @@ function MedicationRow({ patientId, medication }: { patientId: string; medicatio
     >
       <div>
         <p style={{ fontSize: 13, margin: 0 }}>
-          {medication.drug_name} <span style={{ color: "var(--text-secondary)" }}>{medication.dose} \u00b7 {medication.frequency}</span>
-          {medication.route ? <span style={{ color: "var(--text-muted)" }}> \u00b7 {medication.route}</span> : null}
+          {medication.drug_name} <span style={{ color: "var(--text-secondary)" }}>{medication.dose} · {medication.frequency}</span>
+          {medication.route ? <span style={{ color: "var(--text-muted)" }}> · {medication.route}</span> : null}
         </p>
         <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
-          {medication.indication ? `${medication.indication} \u00b7 ` : ""}
-          from {medication.start_date}
-          {medication.stop_date ? ` to ${medication.stop_date}` : ""}
+          {medication.indication ? `${medication.indication} · ` : ""}
+          from {formatDateDisplay(medication.start_date)}
+          {medication.stop_date ? ` to ${formatDateDisplay(medication.stop_date)}` : ""}
         </p>
       </div>
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -1461,9 +1462,9 @@ function EventsView({ patientId, events }: { patientId: string; events: Clinical
                     }}
                   >
                     {ev.event_type}
-                    {ev.bleeding_severity ? ` \u00b7 ${ev.bleeding_severity.toUpperCase()}` : ""}
+                    {ev.bleeding_severity ? ` · ${ev.bleeding_severity.toUpperCase()}` : ""}
                   </span>
-                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{ev.event_date}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{formatDateDisplay(ev.event_date)}</span>
                   {ev.inr_at_event != null && (
                     <span style={{ fontSize: 12, color: "var(--text-muted)" }}>INR {ev.inr_at_event}</span>
                   )}
@@ -1644,7 +1645,7 @@ function ReminderRow({ patientId, reminder, overdue }: { patientId: string; remi
           <p style={{ fontSize: 13, margin: 0, textDecoration: reminder.completed ? "line-through" : "none" }}>{reminder.task}</p>
           {reminder.due_date && (
             <p style={{ fontSize: 11, margin: "1px 0 0", color: overdue ? "var(--text-danger)" : "var(--text-muted)" }}>
-              Due {reminder.due_date}{overdue ? " \u00b7 overdue" : ""}
+              Due {formatDateDisplay(reminder.due_date)}{overdue ? " · overdue" : ""}
             </p>
           )}
         </div>
@@ -1699,7 +1700,7 @@ function PatientNotesView({ patientId, value }: { patientId: string; value: stri
       }}
     >
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>
-        General notes on this patient. Free text \u2014 paste links here too (e.g. to a document already
+        General notes on this patient. Free text — paste links here too (e.g. to a document already
         on the hospital EMR or shared drive); there's no separate file storage.
       </p>
       <textarea

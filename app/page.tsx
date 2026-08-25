@@ -1,5 +1,5 @@
 import {
-  getTodaysAppointments,
+  getAppointmentsForDate,
   getAllPatients,
   getFollowUpStatuses,
   getHighInrAlerts,
@@ -10,9 +10,12 @@ import { Dashboard } from "@/components/home/Dashboard";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+  const { date } = await searchParams;
+  const selectedDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
+
   const [appointments, patients, followUps, highInrAlerts, pharmacists, currentPharmacist] = await Promise.all([
-    getTodaysAppointments(),
+    getAppointmentsForDate(selectedDate),
     getAllPatients(),
     getFollowUpStatuses(),
     getHighInrAlerts(),
@@ -28,6 +31,7 @@ export default async function Home() {
       highInrAlerts={highInrAlerts}
       pharmacists={pharmacists}
       currentPharmacist={currentPharmacist}
+      selectedDate={selectedDate}
     />
   );
 }

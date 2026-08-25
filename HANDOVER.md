@@ -1,5 +1,5 @@
 # ACMS — Anticoagulation Management System
-## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13, §14, §15)
+## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13, §14, §15, §16)
 
 For: UKM / Hospital Canselor Tuanku Muhriz anticoagulation clinic pharmacy team
 Owner: Shamin Mohd Saffian
@@ -488,6 +488,85 @@ confirm the seen-by join resolves to a real name) before trusting the code path,
 deleted the test rows and confirmed row counts matched the pre-session baseline exactly
 (2 appointments, 5 encounters). Full `next build` clean. Packaged as a zip, not pushed
 to GitHub.
+
+---
+
+## 16. Sixth session — 25 August 2026: dark-mode bug, unicode corruption, calendar, footer, date/time format
+
+Requester reported the dashboard rendering black and asked for five fixes/additions.
+Two further asks (a non-persisting demo mode, and a full patient-page redesign against
+a second mockup) were deliberately **not** built this round — see 16.6.
+
+**16.1 Dark screen — root cause found.** `app/globals.css` had a
+`@media (prefers-color-scheme: dark)` block left over from before the "bright theme"
+request in session 2. It silently overrode every color variable whenever the viewer's
+OS/browser was set to dark mode — which is exactly what was happening. Removed
+entirely, with a comment explaining why, so it doesn't get re-added by accident later.
+The app is now always light regardless of system preference.
+
+**16.2 Interactive calendar.** `getTodaysAppointments` became `getAppointmentsForDate(date)`
+(kept as a thin wrapper for backward compatibility). `app/page.tsx` now reads a `?date=`
+search param and re-fetches server-side for that date. Calendar cells in
+`components/home/Dashboard.tsx` are real links (`/?date=YYYY-MM-DD`), the queue table
+retitles to show which date is being viewed, and the "Upcoming Appointments" panel
+(which only makes sense relative to *now*) correctly disables itself and says so when
+viewing any date other than today, rather than showing misleading data.
+
+**16.3 Unicode escape corruption — real bug, and a real incident while fixing it.**
+Every file built across this whole project used `\uXXXX`-style escape sequences for
+em-dashes, middle dots, and a couple of emoji icons. Something in the write/transport
+path was double-escaping these, so the browser was rendering literal text like
+`\u26a0\ufe0f` instead of the actual character — this was very likely happening
+**everywhere** those escapes were used, not just the one alert icon the requester
+happened to notice. Root-caused and fixed by replacing every `\uXXXX` escape across
+`app/`, `components/`, and `lib/` with the actual literal Unicode character, using a
+script that correctly reassembles surrogate pairs (the naive version doesn't, and
+silently mangles emoji).
+
+**Incident during the fix:** the first version of that script crashed
+(`UnicodeEncodeError`) partway through re-writing `components/home/Dashboard.tsx` —
+Python had already truncated the file to 0 bytes via `open(..., 'w')` before the crash,
+since the encode error happened at write time, not before. This was caught immediately
+by checking file sizes against expectations post-fix. `Dashboard.tsx` was rebuilt from
+scratch, this time using plain ASCII (`-`, `!`, `#`) instead of any escaped or literal
+special characters, specifically to avoid this whole class of failure recurring. Every
+other touched file's byte count was checked against its pre-fix size to confirm nothing
+else was silently damaged the same way — none were.
+
+**16.4 Footer.** `app/layout.tsx` is now an async server component (fetches
+`getCurrentPharmacist()`). Every page shows, at the bottom: who's logged in and their
+raw user ID, and below that "Developed by Shamin Mohd Saffian · shamin@ukm.edu.my ·
+Version 1.0", exactly as specified.
+
+**16.5 Date/time display format.** New `lib/format.ts`:
+`formatDateDisplay()` renders any stored ISO date as `DD/MM/YY` for display only — the
+underlying stored values are untouched (still ISO, still what sorting/comparisons use).
+Applied across the patient chart (History, Labs, Target INR/biometrics/HAS-BLED
+history lists, sidebar, DOB) and the dashboard's alerts. `TIME_OPTIONS` is a 15-minute-
+increment array (07:00–19:00); the appointment-scheduling time field is now a `<select>`
+built from it instead of a native free-text time input, since a clinic books to a
+schedule, not an arbitrary minute. Native `<input type="date">` fields (patient DOB
+entry, visit dates, etc.) were **not** converted to a custom DD/MM/YY picker — the
+browser's own date picker already renders in a locale-appropriate format, and building
+a fully custom date-picker component was judged out of proportion to the ask; flag if
+that's actually wanted.
+
+**16.6 Explicitly not built this round — need requester input first**
+- **Demo mode with two non-persisting patients, empty production DB.** This needs an
+  architecture decision (most likely: a fully separate client-only version of the app —
+  no server actions, all state local, resets on refresh) before any code gets written.
+  Also unresolved: whether to delete the two seeded demo patients
+  (Siti Nur Aisyah, Tan Wei Ming) from the live database now, or only once a demo mode
+  exists to replace them for testing purposes.
+- **Patient page redesign** against the requester's second mockup (a denser,
+  more-at-a-glance layout vs. today's tabbed interface). The requester explicitly asked
+  for a proposal and their approval before this gets built, so nothing was built —
+  next step is presenting a plan that keeps every feature from §11–§15 intact.
+
+**16.7 Delivery note** — Verified against live Supabase: confirmed appointment/encounter
+row counts unchanged from the session-start baseline (2 appointments, 5 encounters)
+after all query/data-shape changes. Full `next build` clean. Packaged as a zip, not
+pushed to GitHub.
 
 ## 9. Who to ask
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { TodaysAppointment, Patient, FollowUpStatus, Pharmacist, AppointmentType } from "@/lib/types";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/types";
+import { formatDateDisplay } from "@/lib/format";
 import { checkInAppointment, startVisit, completeAppointment, markNoShow } from "@/app/actions/appointments";
 
 const statusMeta: Record<string, { bg: string; text: string; label: string }> = {
@@ -35,6 +36,7 @@ export function Dashboard({
   highInrAlerts,
   pharmacists,
   currentPharmacist,
+  selectedDate,
 }: {
   appointments: TodaysAppointment[];
   patients: Patient[];
@@ -42,6 +44,7 @@ export function Dashboard({
   highInrAlerts: { patient_id: string; name: string; last_inr: number }[];
   pharmacists: Pharmacist[];
   currentPharmacist: Pharmacist | null;
+  selectedDate: string;
 }) {
   const todayIso = new Date().toISOString().slice(0, 10);
   const defaulted = followUps.filter((f) => f.next_appt_date && f.next_appt_date < todayIso);
@@ -61,11 +64,11 @@ export function Dashboard({
 
         <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
           <div style={{ flex: 2, minWidth: 480 }}>
-            <AppointmentsTable appointments={appointments} pharmacists={pharmacists} />
+            <AppointmentsTable appointments={appointments} pharmacists={pharmacists} selectedDate={selectedDate} todayIso={todayIso} />
           </div>
           <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 16 }}>
-            <MiniCalendar />
-            <UpcomingPanel appointments={appointments} />
+            <MiniCalendar selectedDate={selectedDate} todayIso={todayIso} />
+            <UpcomingPanel appointments={appointments} selectedDate={selectedDate} todayIso={todayIso} />
           </div>
         </div>
       </main>
@@ -188,22 +191,22 @@ function AlertsCard({
   return (
     <div style={cardStyle}>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 10px", fontWeight: 500 }}>High Priority Alerts</p>
-      <AlertRow icon="\u26a0\ufe0f" tone="danger" text={`${highInrAlerts.length} Patient${highInrAlerts.length === 1 ? "" : "s"} with INR > 4.0`}>
+      <AlertRow icon="!" tone="danger" text={`${highInrAlerts.length} Patient${highInrAlerts.length === 1 ? "" : "s"} with INR > 4.0`}>
         {highInrAlerts.slice(0, 3).map((a) => (
           <p key={a.patient_id} style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0 22px" }}>
-            {a.name} \u2014 INR {a.last_inr}
+            {a.name} - INR {a.last_inr}
           </p>
         ))}
       </AlertRow>
-      <AlertRow icon="\ud83d\udcc5" tone="warning" text={`${defaultedCount} Patient${defaultedCount === 1 ? "" : "s"} defaulted follow-up`}>
+      <AlertRow icon="#" tone="warning" text={`${defaultedCount} Patient${defaultedCount === 1 ? "" : "s"} defaulted follow-up`}>
         {defaulted.slice(0, 3).map((f) => (
           <p key={f.patient_id} style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0 22px" }}>
-            {f.patient_name} \u2014 missed {f.next_appt_date}
+            {f.patient_name} - missed {formatDateDisplay(f.next_appt_date)}
           </p>
         ))}
       </AlertRow>
-      <AlertRow icon="\ud83d\udd52" tone="muted" text="Overdue dose adjustments" placeholder />
-      <AlertRow icon="\ud83d\udce9" tone="muted" text="New referrals pending review" placeholder />
+      <AlertRow icon="o" tone="muted" text="Overdue dose adjustments" placeholder />
+      <AlertRow icon="o" tone="muted" text="New referrals pending review" placeholder />
     </div>
   );
 }
@@ -222,13 +225,30 @@ function AlertRow({
   children?: React.ReactNode;
 }) {
   const color = tone === "danger" ? "var(--text-danger)" : tone === "warning" ? "var(--text-warning)" : "var(--text-muted)";
+  const badgeBg = tone === "danger" ? "var(--bg-danger)" : tone === "warning" ? "var(--bg-warning)" : "var(--surface-1)";
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 13 }}>{icon}</span>
+        <span
+          style={{
+            width: 16,
+            height: 16,
+            borderRadius: "50%",
+            background: badgeBg,
+            color,
+            fontSize: 10,
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {icon}
+        </span>
         <span style={{ fontSize: 12, color, fontWeight: placeholder ? 400 : 500 }}>
           {text}
-          {placeholder && <span style={{ color: "var(--text-muted)" }}> \u2014 not tracked yet</span>}
+          {placeholder && <span style={{ color: "var(--text-muted)" }}> - not tracked yet</span>}
         </span>
       </div>
       {children}
@@ -313,44 +333,80 @@ function QuickSearchCard({ patients }: { patients: Patient[] }) {
   );
 }
 
-function MiniCalendar() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
+function MiniCalendar({ selectedDate, todayIso }: { selectedDate: string; todayIso: string }) {
+  const [viewYear, viewMonth] = selectedDate.split("-").map(Number);
+  const year = viewYear;
+  const month = viewMonth - 1;
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthLabel = now.toLocaleDateString("en-MY", { month: "long", year: "numeric" });
+  const monthLabel = new Date(year, month, 1).toLocaleDateString("en-MY", { month: "long", year: "numeric" });
   const cells: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+  function isoFor(day: number) {
+    return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
 
   return (
     <div style={cardStyle}>
-      <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 10px", fontWeight: 500 }}>{monthLabel}</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0, fontWeight: 500 }}>{monthLabel}</p>
+        {selectedDate !== todayIso && (
+          <Link href="/" style={{ fontSize: 11, color: "var(--text-accent)", textDecoration: "none" }}>
+            Today
+          </Link>
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, fontSize: 10, textAlign: "center" }}>
         {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
           <span key={d} style={{ color: "var(--text-muted)" }}>
             {d}
           </span>
         ))}
-        {cells.map((d, i) => (
-          <span
-            key={i}
-            style={{
-              padding: "3px 0",
-              borderRadius: 4,
-              background: d === today ? "var(--fill-accent)" : "transparent",
-              color: d === today ? "var(--on-accent)" : d ? "var(--text-primary)" : "transparent",
-            }}
-          >
-            {d ?? "."}
-          </span>
-        ))}
+        {cells.map((d, i) => {
+          if (!d) return <span key={i} />;
+          const iso = isoFor(d);
+          const isToday = iso === todayIso;
+          const isSelected = iso === selectedDate;
+          return (
+            <Link
+              key={i}
+              href={`/?date=${iso}`}
+              style={{
+                padding: "3px 0",
+                borderRadius: 4,
+                textDecoration: "none",
+                background: isSelected ? "var(--fill-accent)" : isToday ? "var(--bg-accent)" : "transparent",
+                color: isSelected ? "var(--on-accent)" : "var(--text-primary)",
+                border: isToday && !isSelected ? "1px solid var(--border-accent)" : "1px solid transparent",
+              }}
+            >
+              {d}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function UpcomingPanel({ appointments }: { appointments: TodaysAppointment[] }) {
+function UpcomingPanel({
+  appointments,
+  selectedDate,
+  todayIso,
+}: {
+  appointments: TodaysAppointment[];
+  selectedDate: string;
+  todayIso: string;
+}) {
+  if (selectedDate !== todayIso) {
+    return (
+      <div style={cardStyle}>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 4px", fontWeight: 500 }}>Upcoming Appointments</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Only shown when viewing today.</p>
+      </div>
+    );
+  }
+
   const now = new Date();
   const nowHM = now.toTimeString().slice(0, 5);
   const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5);
@@ -369,7 +425,7 @@ function UpcomingPanel({ appointments }: { appointments: TodaysAppointment[] }) 
           <div key={a.id} style={{ marginBottom: 8 }}>
             <p style={{ fontSize: 12, margin: 0 }}>{a.patient_name}</p>
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-              {a.scheduled_time.slice(0, 5)} \u00b7 {APPOINTMENT_TYPE_LABELS[a.appointment_type]}
+              {a.scheduled_time.slice(0, 5)} - {APPOINTMENT_TYPE_LABELS[a.appointment_type]}
             </p>
           </div>
         ))
@@ -378,15 +434,26 @@ function UpcomingPanel({ appointments }: { appointments: TodaysAppointment[] }) 
   );
 }
 
-function AppointmentsTable({ appointments, pharmacists }: { appointments: TodaysAppointment[]; pharmacists: Pharmacist[] }) {
+function AppointmentsTable({
+  appointments,
+  pharmacists,
+  selectedDate,
+  todayIso,
+}: {
+  appointments: TodaysAppointment[];
+  pharmacists: Pharmacist[];
+  selectedDate: string;
+  todayIso: string;
+}) {
+  const title = selectedDate === todayIso ? "Today's Appointments" : `Appointments \u2014 ${formatDateDisplay(selectedDate)}`;
   return (
     <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
       <p style={{ fontSize: 13, fontWeight: 500, margin: 0, padding: "14px 16px", borderBottom: "0.5px solid var(--border)" }}>
-        Today's Appointments
+        {title}
       </p>
       {appointments.length === 0 ? (
         <p style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-          No appointments scheduled for today.
+          No appointments on this date.
         </p>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -439,14 +506,14 @@ function AppointmentRow({ appt, pharmacists }: { appt: TodaysAppointment; pharma
         </Link>
         {appt.status === "with_pharmacist" && (
           <p style={{ fontSize: 11, color: "var(--text-accent)", margin: "2px 0 0" }}>
-            Meeting {appt.pharmacist_name ?? "\u2014"} in {appt.room ?? "\u2014"}
+            Meeting {appt.pharmacist_name ?? "-"} in {appt.room ?? "-"}
           </p>
         )}
       </td>
       <td style={{ ...td, textTransform: "capitalize" }}>{appt.anticoagulant_type}</td>
-      <td style={td}>{appt.target_inr_low && appt.target_inr_high ? `${appt.target_inr_low}\u2013${appt.target_inr_high}` : "\u2014"}</td>
+      <td style={td}>{appt.target_inr_low && appt.target_inr_high ? `${appt.target_inr_low}-${appt.target_inr_high}` : "-"}</td>
       <td style={{ ...td, color: inrColor(appt.last_inr, appt.target_inr_low, appt.target_inr_high), fontWeight: 500 }}>
-        {appt.last_inr ?? "\u2014"}
+        {appt.last_inr ?? "-"}
       </td>
       <td style={td}>
         <span style={{ background: meta.bg, color: meta.text, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>{meta.label}</span>

@@ -77,15 +77,14 @@ export async function getScoringResults(
   }));
 }
 
-export async function getTodaysAppointments(): Promise<TodaysAppointment[]> {
+export async function getAppointmentsForDate(date: string): Promise<TodaysAppointment[]> {
   const supabase = createServerClient();
-  const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("appointments")
     .select(
       "id, patient_id, scheduled_time, room, status, appointment_type, pharmacist_id, patients(name, anticoagulant_type, target_inr_low, target_inr_high), profiles(full_name)"
     )
-    .eq("scheduled_date", today)
+    .eq("scheduled_date", date)
     .order("scheduled_time", { ascending: true });
   if (error) return [];
 
@@ -111,6 +110,10 @@ export async function getTodaysAppointments(): Promise<TodaysAppointment[]> {
     target_inr_high: row.patients?.target_inr_high ?? null,
     last_inr: inrByPatient.get(row.patient_id) ?? null,
   }));
+}
+
+export async function getTodaysAppointments(): Promise<TodaysAppointment[]> {
+  return getAppointmentsForDate(new Date().toISOString().slice(0, 10));
 }
 
 export async function getHighInrAlerts(): Promise<{ patient_id: string; name: string; last_inr: number }[]> {

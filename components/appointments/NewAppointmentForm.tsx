@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createAppointment } from "@/app/actions/appointments";
 import type { Patient, Pharmacist } from "@/lib/types";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/types";
+import { TIME_OPTIONS } from "@/lib/format";
 
 export function NewAppointmentForm({ patients, pharmacists }: { patients: Patient[]; pharmacists: Pharmacist[] }) {
   return (
@@ -33,7 +34,14 @@ export function NewAppointmentForm({ patients, pharmacists }: { patients: Patien
           </FieldWrap>
           <FieldWrap>
             <label style={label}>Time</label>
-            <input name="scheduled_time" type="time" required style={{ width: "100%", height: 36 }} />
+            <select name="scheduled_time" required style={{ width: "100%", height: 36 }}>
+              <option value="">Select&hellip;</option>
+              {TIME_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
           </FieldWrap>
         </Row>
 

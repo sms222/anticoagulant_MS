@@ -32,26 +32,12 @@
   --radius: 8px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-0: #1a1a19;
-    --surface-1: #2c2c2a;
-    --surface-2: #232322;
-    --text-primary: #f0efec;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --text-accent: #e0595d;
-    --border: rgba(255,255,255,0.14);
-    --border-strong: rgba(255,255,255,0.30);
-    --border-accent: #e0595d;
-    --bg-accent: #3a1e1e;
-    --bg-info: #1b2c38;
-    --fill-primary: #f0efec;
-    --fill-accent: #c53a3e;
-    --on-primary: #0b0b0b;
-    --on-accent: #ffffff;
-  }
-}
+/* This app is always the bright/light theme regardless of OS or browser
+   dark-mode preference — deliberate choice, not an oversight. A previous
+   dark-mode media query here was overriding the light theme whenever a
+   user's system was set to dark mode, which is exactly why the dashboard
+   was showing up black. Do not re-add a prefers-color-scheme override
+   without checking with the requester first. */
 
 body {
   background: var(--surface-0);

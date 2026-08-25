@@ -62,8 +62,8 @@ export default function NewPatientPage() {
           <div style={{ marginBottom: 14 }}>
             <Field label="Target INR" name="target_inr" type="number" step="0.1" />
             <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-8px 0 0" }}>
-              Range applied automatically: \u00b10.5 (e.g. 2.5 \u2192 2.0\u20133.0). Can be updated at a later
-              visit \u2014 changes are tracked and feed the TTR graph.
+              Range applied automatically: ±0.5 (e.g. 2.5 → 2.0–3.0). Can be updated at a later
+              visit — changes are tracked and feed the TTR graph.
             </p>
           </div>
         )}

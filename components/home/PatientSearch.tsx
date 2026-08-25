@@ -19,7 +19,7 @@ export function PatientSearch({ patients }: { patients: Patient[] }) {
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search by name or MRN\u2026"
+        placeholder="Search by name or MRN…"
         style={{ width: "100%", marginBottom: 12 }}
       />
       <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>

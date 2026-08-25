@@ -1,16 +1,19 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getCurrentPharmacist } from "@/lib/supabase/queries";
 
 export const metadata: Metadata = {
   title: "Anticoagulation Management System",
   description: "Anticoagulation clinic management",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const currentPharmacist = await getCurrentPharmacist();
+
   return (
     <html lang="en">
-      <body>
+      <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <header
           style={{
             borderBottom: "0.5px solid var(--border)",
@@ -39,7 +42,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             &larr; Back to queue
           </Link>
         </header>
-        {children}
+
+        <div style={{ flex: 1 }}>{children}</div>
+
+        <footer
+          style={{
+            borderTop: "0.5px solid var(--border)",
+            padding: "12px 2rem",
+            fontSize: 11,
+            color: "var(--text-muted)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+          }}
+        >
+          {currentPharmacist && (
+            <span>
+              Logged in as {currentPharmacist.full_name} (User ID: {currentPharmacist.id})
+            </span>
+          )}
+          <span>
+            Developed by Shamin Mohd Saffian &middot; Any problems email{" "}
+            <a href="mailto:shamin@ukm.edu.my" style={{ color: "var(--text-muted)" }}>
+              shamin@ukm.edu.my
+            </a>{" "}
+            &middot; Version 1.0
+          </span>
+        </footer>
       </body>
     </html>
   );
