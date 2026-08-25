@@ -31,6 +31,7 @@ const cardStyle: React.CSSProperties = {
 
 export function Dashboard({
   appointments,
+  tomorrowAppointments,
   patients,
   followUps,
   highInrAlerts,
@@ -39,6 +40,7 @@ export function Dashboard({
   selectedDate,
 }: {
   appointments: TodaysAppointment[];
+  tomorrowAppointments: TodaysAppointment[];
   patients: Patient[];
   followUps: FollowUpStatus[];
   highInrAlerts: { patient_id: string; name: string; last_inr: number }[];
@@ -68,7 +70,7 @@ export function Dashboard({
           </div>
           <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 16 }}>
             <MiniCalendar selectedDate={selectedDate} todayIso={todayIso} />
-            <UpcomingPanel appointments={appointments} selectedDate={selectedDate} todayIso={todayIso} />
+            <UpcomingPanel appointments={appointments} tomorrowAppointments={tomorrowAppointments} selectedDate={selectedDate} todayIso={todayIso} />
           </div>
         </div>
       </main>
@@ -354,7 +356,7 @@ function MiniCalendar({ selectedDate, todayIso }: { selectedDate: string; todayI
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0, fontWeight: 500 }}>{monthLabel}</p>
         {selectedDate !== todayIso && (
-          <Link href="/" style={{ fontSize: 11, color: "var(--text-accent)", textDecoration: "none" }}>
+          <Link href={`/?date=${todayIso}`} style={{ fontSize: 11, color: "var(--text-accent)", textDecoration: "none" }}>
             Today
           </Link>
         )}
@@ -394,10 +396,12 @@ function MiniCalendar({ selectedDate, todayIso }: { selectedDate: string; todayI
 
 function UpcomingPanel({
   appointments,
+  tomorrowAppointments,
   selectedDate,
   todayIso,
 }: {
   appointments: TodaysAppointment[];
+  tomorrowAppointments: TodaysAppointment[];
   selectedDate: string;
   todayIso: string;
 }) {
@@ -413,18 +417,41 @@ function UpcomingPanel({
   const now = new Date();
   const nowHM = now.toTimeString().slice(0, 5);
   const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5);
-  const upcoming = appointments
+  const laterToday = appointments
     .filter((a) => a.status === "scheduled" && a.scheduled_time.slice(0, 5) >= nowHM && a.scheduled_time.slice(0, 5) <= twoHoursLater)
     .slice(0, 5);
+  const tomorrow = tomorrowAppointments.filter((a) => a.status === "scheduled").slice(0, 5);
 
   return (
     <div style={cardStyle}>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 4px", fontWeight: 500 }}>Upcoming Appointments</p>
-      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Next appointments in the next two hours.</p>
-      {upcoming.length === 0 ? (
-        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Nothing coming up in this window.</p>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Next two hours today, plus tomorrow's schedule.</p>
+
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Later today
+      </p>
+      {laterToday.length === 0 ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>Nothing coming up in this window.</p>
       ) : (
-        upcoming.map((a) => (
+        <div style={{ marginBottom: 12 }}>
+          {laterToday.map((a) => (
+            <div key={a.id} style={{ marginBottom: 8 }}>
+              <p style={{ fontSize: 12, margin: 0 }}>{a.patient_name}</p>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+                {a.scheduled_time.slice(0, 5)} - {APPOINTMENT_TYPE_LABELS[a.appointment_type]}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Tomorrow
+      </p>
+      {tomorrow.length === 0 ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Nothing scheduled yet.</p>
+      ) : (
+        tomorrow.map((a) => (
           <div key={a.id} style={{ marginBottom: 8 }}>
             <p style={{ fontSize: 12, margin: 0 }}>{a.patient_name}</p>
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
@@ -498,7 +525,7 @@ function AppointmentRow({ appt, pharmacists }: { appt: TodaysAppointment; pharma
   const boundCheckIn = checkInAppointment.bind(null, appt.id);
   const boundComplete = completeAppointment.bind(null, appt.id);
   const boundNoShow = markNoShow.bind(null, appt.id);
-  const boundStart = startVisit.bind(null, appt.id);
+  const boundStart = startVisit.bind(null, appt.id, appt.patient_id);
 
   return (
     <tr>

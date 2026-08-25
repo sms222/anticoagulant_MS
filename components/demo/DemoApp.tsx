@@ -14,6 +14,7 @@ import { calculateCha2ds2Vasc, cha2ds2VascFromComorbidities } from "@/lib/calcul
 // refresh throws it all away and reseeds from scratch, by design.
 // ---------------------------------------------------------------------------
 type Anticoagulant = "warfarin" | "apixaban";
+type DemoApptStatus = "scheduled" | "checked_in" | "with_pharmacist" | "completed";
 
 interface DemoLab {
   id: string;
@@ -53,6 +54,16 @@ interface DemoPatient {
   chadsVascHistory: DemoScoreEntry[];
 }
 
+interface DemoAppointment {
+  id: string;
+  patientId: string;
+  day: "today" | "tomorrow";
+  time: string;
+  status: DemoApptStatus;
+  visitStartedAt: number | null; // epoch ms, set while with_pharmacist
+  visitElapsedSeconds: number; // banked from prior pause, or final on completion
+}
+
 const COMORBIDITY_OPTIONS = [
   "Hypertension",
   "Diabetes mellitus",
@@ -81,6 +92,11 @@ function todayIso(): string {
 }
 function uid(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+function formatDuration(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function seedPatients(): DemoPatient[] {
@@ -135,11 +151,59 @@ function seedPatients(): DemoPatient[] {
       hasBledHistory: [],
       chadsVascHistory: [],
     },
+    {
+      id: "demo-3",
+      name: "Nur Izzati binti Hassan",
+      dob: "1972-06-20",
+      sex: "female",
+      weightKg: 58,
+      heightCm: 160,
+      anticoagulant: "warfarin",
+      indication: "Deep vein thrombosis",
+      targetInr: 2.5,
+      comorbidities: [],
+      alcoholExcess: false,
+      smokingStatus: null,
+      medications: [{ id: uid(), name: "Warfarin", dose: "5mg OD", active: true }],
+      inrLabs: [],
+      creatinineLabs: [],
+      hasBledHistory: [],
+      chadsVascHistory: [],
+    },
+    {
+      id: "demo-4",
+      name: "Muhammad Faiz bin Rahman",
+      dob: "1980-01-09",
+      sex: "male",
+      weightKg: 74,
+      heightCm: 173,
+      anticoagulant: "warfarin",
+      indication: "Pulmonary embolism",
+      targetInr: 2.5,
+      comorbidities: [],
+      alcoholExcess: false,
+      smokingStatus: null,
+      medications: [{ id: uid(), name: "Warfarin", dose: "5mg OD", active: true }],
+      inrLabs: [],
+      creatinineLabs: [],
+      hasBledHistory: [],
+      chadsVascHistory: [],
+    },
+  ];
+}
+
+function seedAppointments(): DemoAppointment[] {
+  return [
+    { id: uid(), patientId: "demo-1", day: "today", time: "09:30", status: "scheduled", visitStartedAt: null, visitElapsedSeconds: 0 },
+    { id: uid(), patientId: "demo-2", day: "today", time: "10:15", status: "scheduled", visitStartedAt: null, visitElapsedSeconds: 0 },
+    { id: uid(), patientId: "demo-3", day: "tomorrow", time: "09:00", status: "scheduled", visitStartedAt: null, visitElapsedSeconds: 0 },
+    { id: uid(), patientId: "demo-4", day: "tomorrow", time: "10:00", status: "scheduled", visitStartedAt: null, visitElapsedSeconds: 0 },
   ];
 }
 
 export function DemoApp() {
   const [patients, setPatients] = useState<DemoPatient[]>(() => seedPatients());
+  const [appointments, setAppointments] = useState<DemoAppointment[]>(() => seedAppointments());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = patients.find((p) => p.id === selectedId) ?? null;
 
@@ -147,8 +211,13 @@ export function DemoApp() {
     setPatients((prev) => prev.map((p) => (p.id === id ? fn(p) : p)));
   }
 
+  function updateAppointment(id: string, fn: (a: DemoAppointment) => DemoAppointment) {
+    setAppointments((prev) => prev.map((a) => (a.id === id ? fn(a) : a)));
+  }
+
   function resetDemo() {
     setPatients(seedPatients());
+    setAppointments(seedAppointments());
     setSelectedId(null);
   }
 
@@ -158,7 +227,12 @@ export function DemoApp() {
       {selected ? (
         <DemoPatientDetail patient={selected} onBack={() => setSelectedId(null)} onUpdate={(fn) => updatePatient(selected.id, fn)} />
       ) : (
-        <DemoPatientList patients={patients} onSelect={setSelectedId} />
+        <DemoDashboard
+          patients={patients}
+          appointments={appointments}
+          onOpenPatient={setSelectedId}
+          onUpdateAppointment={updateAppointment}
+        />
       )}
     </main>
   );
@@ -183,8 +257,8 @@ function DemoBanner({ onReset }: { onReset: () => void }) {
       <div>
         <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: "var(--text-accent)" }}>Demo mode</p>
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-          Two fictional patients, entirely in your browser — nothing here reaches the clinic database. Refreshing
-          the page resets everything back to the starting point.
+          Fictional patients, entirely in your browser — nothing here reaches the clinic database. Refreshing the
+          page resets everything back to the starting point.
         </p>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
@@ -199,42 +273,217 @@ function DemoBanner({ onReset }: { onReset: () => void }) {
   );
 }
 
-function DemoPatientList({ patients, onSelect }: { patients: DemoPatient[]; onSelect: (id: string) => void }) {
+// ---------------------------------------------------------------------------
+// Dashboard — the landing view, mimicking what a pharmacist sees right after
+// logging in: today's appointment queue plus a preview of tomorrow's.
+// ---------------------------------------------------------------------------
+function DemoDashboard({
+  patients,
+  appointments,
+  onOpenPatient,
+  onUpdateAppointment,
+}: {
+  patients: DemoPatient[];
+  appointments: DemoAppointment[];
+  onOpenPatient: (id: string) => void;
+  onUpdateAppointment: (id: string, fn: (a: DemoAppointment) => DemoAppointment) => void;
+}) {
+  const patientById = new Map(patients.map((p) => [p.id, p]));
+  const todayAppts = appointments.filter((a) => a.day === "today");
+  const tomorrowAppts = appointments.filter((a) => a.day === "tomorrow");
+  const todayLabel = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const total = todayAppts.length;
+  const completed = todayAppts.filter((a) => a.status === "completed").length;
+  const pending = todayAppts.filter((a) => a.status === "scheduled").length;
+  const checkedIn = todayAppts.filter((a) => a.status === "checked_in" || a.status === "with_pharmacist").length;
+
   return (
     <div>
-      <h1 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 4px" }}>Demo patients</h1>
-      <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 16px" }}>
-        Click a patient to try editing comorbidities, medications, and labs — HAS-BLED and CHA2DS2-VASc recompute
-        live, the same way they do in the real app.
+      <p style={{ fontSize: 18, fontWeight: 500, margin: 0 }}>Anticoagulant Clinic Dashboard</p>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "2px 0 20px" }}>{todayLabel}</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <StatBlock value={total} label="Total appointments" />
+        <StatBlock value={completed} label="Completed" />
+        <StatBlock value={pending} label="Pending" />
+        <StatBlock value={checkedIn} label="Checked-in" />
+      </div>
+
+      <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 8px" }}>Today's Appointments</p>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>
+        Try the full flow: Check In &rarr; Start Visit (timer starts) &rarr; Save &amp; End Visit.
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-        {patients.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => onSelect(p.id)}
-            style={{
-              textAlign: "left",
-              border: "0.5px solid var(--border)",
-              borderRadius: 12,
-              padding: 16,
-              background: "var(--surface-0)",
-              cursor: "pointer",
-            }}
-          >
-            <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>{p.name}</p>
-            <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "4px 0 0", textTransform: "capitalize" }}>
-              {p.anticoagulant} &middot; {p.indication}
-            </p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>
-              {calculateAge(p.dob)}y {p.sex} &middot; {p.weightKg}kg
-            </p>
-          </button>
-        ))}
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 24 }}>
+        {todayAppts.map((appt) => {
+          const patient = patientById.get(appt.patientId);
+          if (!patient) return null;
+          return (
+            <DemoAppointmentRow
+              key={appt.id}
+              appt={appt}
+              patient={patient}
+              onOpenPatient={onOpenPatient}
+              onUpdate={(fn) => onUpdateAppointment(appt.id, fn)}
+            />
+          );
+        })}
+      </div>
+
+      <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 8px" }}>Tomorrow</p>
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: 10, padding: 12 }}>
+        {tomorrowAppts.map((appt) => {
+          const patient = patientById.get(appt.patientId);
+          if (!patient) return null;
+          return (
+            <button
+              key={appt.id}
+              onClick={() => onOpenPatient(patient.id)}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                width: "100%",
+                background: "none",
+                border: "none",
+                textAlign: "left",
+                padding: "6px 0",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              <span>
+                {appt.time} &middot; {patient.name}
+              </span>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                {patient.anticoagulant} &middot; new patient
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
+function StatBlock({ value, label }: { value: number; label: string }) {
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: 10, padding: 12 }}>
+      <p style={{ fontSize: 20, fontWeight: 600, margin: 0, color: "var(--text-accent)" }}>{value}</p>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>{label}</p>
+    </div>
+  );
+}
+
+const statusMeta: Record<DemoApptStatus, { bg: string; text: string; label: string }> = {
+  scheduled: { bg: "var(--bg-info)", text: "var(--text-info)", label: "Scheduled" },
+  checked_in: { bg: "var(--bg-warning)", text: "var(--text-warning)", label: "Checked-In" },
+  with_pharmacist: { bg: "var(--bg-accent)", text: "var(--text-accent)", label: "With Pharmacist" },
+  completed: { bg: "var(--bg-success)", text: "var(--text-success)", label: "Completed" },
+};
+
+function DemoAppointmentRow({
+  appt,
+  patient,
+  onOpenPatient,
+  onUpdate,
+}: {
+  appt: DemoAppointment;
+  patient: DemoPatient;
+  onOpenPatient: (id: string) => void;
+  onUpdate: (fn: (a: DemoAppointment) => DemoAppointment) => void;
+}) {
+  const meta = statusMeta[appt.status];
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (appt.status !== "with_pharmacist") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [appt.status]);
+
+  const ranSeconds = appt.visitStartedAt ? Math.max(0, Math.round((now - appt.visitStartedAt) / 1000)) : 0;
+  const liveTotal = appt.visitElapsedSeconds + ranSeconds;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "10px 14px",
+        borderBottom: "0.5px solid var(--border)",
+        gap: 10,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ minWidth: 180 }}>
+        <button
+          onClick={() => onOpenPatient(patient.id)}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 500, color: "var(--text-primary)", textAlign: "left" }}
+        >
+          {patient.name}
+        </button>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0", textTransform: "capitalize" }}>
+          {appt.time} &middot; {patient.anticoagulant}
+        </p>
+      </div>
+
+      <span style={{ background: meta.bg, color: meta.text, fontSize: 11, padding: "2px 8px", borderRadius: 6 }}>{meta.label}</span>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {appt.status === "scheduled" && (
+          <button onClick={() => onUpdate((a) => ({ ...a, status: "checked_in" }))} style={smallBtnStyle}>
+            Check In
+          </button>
+        )}
+        {appt.status === "checked_in" && (
+          <button
+            onClick={() => onUpdate((a) => ({ ...a, status: "with_pharmacist", visitStartedAt: Date.now() }))}
+            style={smallBtnStyle}
+          >
+            {appt.visitElapsedSeconds > 0 ? `Resume Visit (${formatDuration(appt.visitElapsedSeconds)} so far)` : "Start Visit"}
+          </button>
+        )}
+        {appt.status === "with_pharmacist" && (
+          <>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-accent)",
+                background: "var(--bg-accent)",
+                padding: "3px 8px",
+                borderRadius: 6,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {formatDuration(liveTotal)}
+            </span>
+            <button
+              onClick={() =>
+                onUpdate((a) => ({ ...a, status: "completed", visitStartedAt: null, visitElapsedSeconds: liveTotal }))
+              }
+              style={smallBtnStyle}
+            >
+              Save &amp; End Visit
+            </button>
+          </>
+        )}
+        {appt.status === "completed" && (
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Visit took {formatDuration(appt.visitElapsedSeconds)}</span>
+        )}
+        <button onClick={() => onOpenPatient(patient.id)} style={{ background: "none", border: "none", color: "var(--text-accent)", fontSize: 12, cursor: "pointer" }}>
+          View Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Patient detail — comorbidities, labs, and medications all feed HAS-BLED /
+// CHA2DS2-VASc live via the same calculator functions the real app uses.
+// ---------------------------------------------------------------------------
 function DemoPatientDetail({
   patient,
   onBack,
@@ -301,7 +550,7 @@ function DemoPatientDetail({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "0.5px solid var(--border)" }}>
         <div>
           <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--text-accent)", fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 4 }}>
-            &larr; Back to demo patients
+            &larr; Back to dashboard
           </button>
           <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{patient.name}</p>
         </div>

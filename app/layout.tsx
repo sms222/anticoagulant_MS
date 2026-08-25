@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getCurrentPharmacist } from "@/lib/supabase/queries";
+import { BackToQueueLink } from "@/components/layout/BackToQueueLink";
 
 export const metadata: Metadata = {
   title: "UKM Anticoagulant Management System",
@@ -44,14 +45,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               letterSpacing: 0.2,
             }}
           >
-            UKM AMS
+            UKM Anticoagulant Management System
           </Link>
-          <Link
-            href="/"
-            style={{ fontSize: 13, color: "var(--text-secondary)", textDecoration: "none" }}
-          >
-            &larr; Back to queue
-          </Link>
+          <BackToQueueLink />
           <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
             {new Date().toLocaleString("en-MY", {
               weekday: "short",

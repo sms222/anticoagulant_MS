@@ -3,6 +3,7 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { autoStopStaleVisits } from "@/lib/supabase/visit-timer";
 
 // ---------------------------------------------------------------------------
 // Scheduling — creates a new appointment on the queue
@@ -37,12 +38,15 @@ export async function checkInAppointment(appointmentId: string) {
   revalidatePath("/");
 }
 
-// Starting a visit begins (or resumes) its timer. A pharmacist can only have
-// one visit timer running at once — if they already have another appointment
-// "with_pharmacist", that one is paused first (its elapsed time so far is
-// banked in visit_elapsed_seconds, status drops back to checked_in so it's
-// still visible in the queue to resume later), rather than being force-ended.
-export async function startVisit(appointmentId: string, formData: FormData) {
+// Starting a visit begins (or resumes) its timer and takes the pharmacist
+// straight into that patient's chart — that's where the actual work (dose,
+// notes, labs) happens, and the timer follows them there (shown top-right of
+// the patient page). A pharmacist can only have one visit timer running at
+// once — if they already have another appointment "with_pharmacist", that
+// one is paused first (its elapsed time so far is banked in
+// visit_elapsed_seconds, status drops back to checked_in so it's still
+// visible in the queue to resume later), rather than being force-ended.
+export async function startVisit(appointmentId: string, patientId: string, formData: FormData) {
   const supabase = createServerClient();
   const room = formData.get("room") as string;
   const pharmacistId = (formData.get("pharmacist_id") as string) || null;
@@ -75,6 +79,8 @@ export async function startVisit(appointmentId: string, formData: FormData) {
     .eq("id", appointmentId);
   if (error) throw new Error("Could not start visit: " + error.message);
   revalidatePath("/");
+  revalidatePath(`/patients/${patientId}`);
+  redirect(`/patients/${patientId}`);
 }
 
 // Marks the appointment completed, drops a minimal encounter row onto the

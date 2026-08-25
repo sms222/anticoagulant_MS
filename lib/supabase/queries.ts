@@ -1,4 +1,5 @@
 import { createServerClient } from "./server";
+import { autoStopStaleVisits } from "./visit-timer";
 import type {
   Patient,
   Encounter,
@@ -12,7 +13,26 @@ import type {
   FollowUpStatus,
   Pharmacist,
   TodaysAppointment,
+  ActiveVisit,
 } from "@/lib/types";
+
+// Returns the in-progress visit timer for this patient, if any — used to
+// show the ticking badge on the patient's chart page. Self-heals a runaway
+// timer (>2h, see visit-timer.ts) on read, same as the dashboard query.
+export async function getActiveVisitForPatient(patientId: string): Promise<ActiveVisit | null> {
+  const supabase = createServerClient();
+  await autoStopStaleVisits(supabase);
+  const { data } = await supabase
+    .from("appointments")
+    .select("id, visit_started_at, visit_elapsed_seconds")
+    .eq("patient_id", patientId)
+    .eq("status", "with_pharmacist")
+    .order("visit_started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data || !data.visit_started_at) return null;
+  return { appointmentId: data.id, visitStartedAt: data.visit_started_at, visitElapsedSeconds: data.visit_elapsed_seconds ?? 0 };
+}
 
 export async function getPatient(id: string): Promise<Patient | null> {
   const supabase = createServerClient();
@@ -79,6 +99,7 @@ export async function getScoringResults(
 
 export async function getAppointmentsForDate(date: string): Promise<TodaysAppointment[]> {
   const supabase = createServerClient();
+  await autoStopStaleVisits(supabase);
   const { data, error } = await supabase
     .from("appointments")
     .select(

@@ -13,9 +13,11 @@ import type {
   TargetInrHistoryEntry,
   BiometricsHistoryEntry,
   Pharmacist,
+  ActiveVisit,
 } from "@/lib/types";
 import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import { formatDateDisplay } from "@/lib/format";
+import { VisitGuard } from "./VisitGuard";
 import {
   calculateRosendaalTTR,
   calculatePINRR,
@@ -74,6 +76,7 @@ export function PatientChart({
   targetInrHistory,
   biometricsHistory,
   pharmacists,
+  activeVisit,
 }: {
   patient: Patient;
   encounters: Encounter[];
@@ -88,6 +91,7 @@ export function PatientChart({
   targetInrHistory: TargetInrHistoryEntry[];
   biometricsHistory: BiometricsHistoryEntry[];
   pharmacists: Pharmacist[];
+  activeVisit: ActiveVisit | null;
 }) {
   const [topTab, setTopTab] = useState<TopTab>("dosing");
   const [subTab, setSubTab] = useState<SubTab>("metrics");
@@ -139,13 +143,16 @@ export function PatientChart({
 
   return (
     <div style={{ border: "0.5px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ padding: "14px 18px", borderBottom: "0.5px solid var(--border)" }}>
-        <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{patient.name}</p>
-        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-          {patient.date_of_birth ? `DOB ${formatDateDisplay(patient.date_of_birth)}` : ""}
-          {patient.mrn ? ` · ID ${patient.mrn}` : ""}
-          {patient.address ? ` · ${patient.address}` : ""}
-        </p>
+      <div style={{ padding: "14px 18px", borderBottom: "0.5px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>{patient.name}</p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
+            {patient.date_of_birth ? `DOB ${formatDateDisplay(patient.date_of_birth)}` : ""}
+            {patient.mrn ? ` · ID ${patient.mrn}` : ""}
+            {patient.address ? ` · ${patient.address}` : ""}
+          </p>
+        </div>
+        <VisitGuard activeVisit={activeVisit} />
       </div>
 
       <div style={{ display: "flex" }}>

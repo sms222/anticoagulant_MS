@@ -308,6 +308,12 @@ export const NOAC_FREQUENCY: Record<string, string> = {
   edoxaban: "OD",
 };
 
+export interface ActiveVisit {
+  appointmentId: string;
+  visitStartedAt: string;
+  visitElapsedSeconds: number;
+}
+
 export function isWarfarin(patient: Patient): boolean {
   return patient.anticoagulant_type === "warfarin";
 }
