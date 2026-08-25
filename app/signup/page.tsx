@@ -59,7 +59,7 @@ export default function SignupPage() {
     <main style={{ maxWidth: 360, margin: "10vh auto", padding: "0 1.5rem" }}>
       <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Create account</h1>
       <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>
-        ACMS — for clinic staff only
+        UKM Anticoagulant Management System — for clinic staff only
       </p>
       <form onSubmit={handleSubmit}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>

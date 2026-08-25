@@ -32,9 +32,9 @@ export default function LoginPage() {
 
   return (
     <main style={{ maxWidth: 360, margin: "10vh auto", padding: "0 1.5rem" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>ACMS</h1>
+      <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>UKM AMS</h1>
       <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>
-        Anticoagulation Management System
+        UKM Anticoagulant Management System
       </p>
       <form onSubmit={handleSubmit}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>

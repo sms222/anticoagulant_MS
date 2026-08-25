@@ -182,12 +182,16 @@ export async function updateEncounter(patientId: string, encounterId: string, fo
 // the rest (elderly from DOB, labile INR from this patient's own TTR, drug
 // interactions from the active medications list).
 // ---------------------------------------------------------------------------
-export async function addHasBledAssessment(patientId: string, formData: FormData) {
+export async function addHasBledAssessment(patientId: string) {
   const supabase = createServerClient();
 
   const [{ data: patient }, { data: medications }, { data: inrLabs }, { data: targetHistory }, { data: toolDef }] =
     await Promise.all([
-      supabase.from("patients").select("date_of_birth, target_inr_low, target_inr_high, intake_date").eq("id", patientId).single(),
+      supabase
+        .from("patients")
+        .select("date_of_birth, target_inr_low, target_inr_high, intake_date, comorbidities, alcohol_excess")
+        .eq("id", patientId)
+        .single(),
       supabase.from("medications").select("drug_name").eq("patient_id", patientId).eq("active", true),
       supabase.from("lab_results").select("result_value, test_date").eq("patient_id", patientId).eq("test_name", "INR"),
       supabase.from("target_inr_history").select("target_inr_low, target_inr_high, effective_date").eq("patient_id", patientId),
@@ -198,7 +202,9 @@ export async function addHasBledAssessment(patientId: string, formData: FormData
 
   const { calculateAge } = await import("@/lib/types");
   const { calculateRosendaalTTR } = await import("@/lib/calculators/rosendaal");
-  const { calculateHasBled, detectInteractingDrugs } = await import("@/lib/calculators/has-bled");
+  const { calculateHasBled, detectInteractingDrugs, hasBledInputsFromComorbidities } = await import(
+    "@/lib/calculators/has-bled"
+  );
 
   const age = calculateAge(patient.date_of_birth);
   const elderly = age !== null && age > 65;
@@ -219,18 +225,9 @@ export async function addHasBledAssessment(patientId: string, formData: FormData
   const labileInr = ttr !== null && readings.length >= 2 && ttr.ttrPercent < 60;
 
   const interactingDrugs = detectInteractingDrugs((medications ?? []).map((m) => m.drug_name));
+  const manualInputs = hasBledInputsFromComorbidities(patient.comorbidities ?? [], patient.alcohol_excess ?? false);
 
-  const result = calculateHasBled(
-    {
-      hypertension: formData.get("hypertension") === "on",
-      abnormalRenal: formData.get("abnormalRenal") === "on",
-      abnormalLiver: formData.get("abnormalLiver") === "on",
-      strokeHistory: formData.get("strokeHistory") === "on",
-      bleedingHistory: formData.get("bleedingHistory") === "on",
-      alcoholExcess: formData.get("alcoholExcess") === "on",
-    },
-    { elderly, labileInr, interactingDrugs }
-  );
+  const result = calculateHasBled(manualInputs, { elderly, labileInr, interactingDrugs });
 
   const { error } = await supabase.from("scoring_tool_results").insert({
     patient_id: patientId,
@@ -240,6 +237,58 @@ export async function addHasBledAssessment(patientId: string, formData: FormData
     components: result.components,
   });
   if (error) throw new Error("Could not save HAS-BLED assessment: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// CHA2DS2-VASc — same pattern: computed entirely from comorbidities + DOB +
+// sex, nothing asked directly.
+// ---------------------------------------------------------------------------
+export async function addCha2ds2VascAssessment(patientId: string) {
+  const supabase = createServerClient();
+
+  const [{ data: patient }, { data: toolDef }] = await Promise.all([
+    supabase.from("patients").select("date_of_birth, sex, comorbidities").eq("id", patientId).single(),
+    supabase.from("scoring_tool_definitions").select("id").eq("tool_name", "CHA2DS2-VASc").single(),
+  ]);
+  if (!patient || !toolDef) throw new Error("Could not load patient or CHA2DS2-VASc tool definition");
+
+  const { calculateAge } = await import("@/lib/types");
+  const { calculateCha2ds2Vasc, cha2ds2VascFromComorbidities } = await import("@/lib/calculators/cha2ds2-vasc");
+
+  const age = calculateAge(patient.date_of_birth);
+  const factors = cha2ds2VascFromComorbidities(patient.comorbidities ?? [], age, patient.sex);
+  const result = calculateCha2ds2Vasc(factors);
+
+  const { error } = await supabase.from("scoring_tool_results").insert({
+    patient_id: patientId,
+    tool_id: toolDef.id,
+    score_date: new Date().toISOString().slice(0, 10),
+    score_value: result.score,
+    components: result.components,
+  });
+  if (error) throw new Error("Could not save CHA2DS2-VASc assessment: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// Demographics/risk-factor fields — ethnicity, smoking, comorbidities,
+// alcohol excess. Separate from updatePatientDetails so this panel can save
+// independently.
+// ---------------------------------------------------------------------------
+export async function updatePatientRiskFactors(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const comorbidities = formData.getAll("comorbidities") as string[];
+  const { error } = await supabase
+    .from("patients")
+    .update({
+      ethnicity: (formData.get("ethnicity") as string) || null,
+      smoking_status: (formData.get("smoking_status") as string) || null,
+      comorbidities,
+      alcohol_excess: formData.get("alcohol_excess") === "on",
+    })
+    .eq("id", patientId);
+  if (error) throw new Error("Could not update risk factors: " + error.message);
   revalidatePath(path(patientId));
 }
 

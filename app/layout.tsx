@@ -4,23 +4,34 @@ import Link from "next/link";
 import { getCurrentPharmacist } from "@/lib/supabase/queries";
 
 export const metadata: Metadata = {
-  title: "Anticoagulation Management System",
+  title: "UKM Anticoagulant Management System",
   description: "Anticoagulation clinic management",
 };
+
+const HEADER_HEIGHT = 52;
+const FOOTER_HEIGHT = 54;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const currentPharmacist = await getCurrentPharmacist();
 
   return (
     <html lang="en">
-      <body style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <body style={{ margin: 0 }}>
         <header
           style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: HEADER_HEIGHT,
+            zIndex: 20,
+            background: "var(--surface-0)",
             borderBottom: "0.5px solid var(--border)",
-            padding: "10px 2rem",
+            padding: "0 2rem",
             display: "flex",
             alignItems: "center",
             gap: 16,
+            boxSizing: "border-box",
           }}
         >
           <Link
@@ -33,7 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               letterSpacing: 0.2,
             }}
           >
-            ACMS
+            UKM AMS
           </Link>
           <Link
             href="/"
@@ -43,17 +54,38 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Link>
         </header>
 
-        <div style={{ flex: 1 }}>{children}</div>
+        {/* This is the only scrollable region in the app — header and footer
+            are pinned to the viewport so the footer never requires scrolling
+            to see, no matter how tall a given page's content is. */}
+        <div
+          style={{
+            marginTop: HEADER_HEIGHT,
+            marginBottom: FOOTER_HEIGHT,
+            minHeight: `calc(100vh - ${HEADER_HEIGHT + FOOTER_HEIGHT}px)`,
+            overflowY: "auto",
+          }}
+        >
+          {children}
+        </div>
 
         <footer
           style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: FOOTER_HEIGHT,
+            zIndex: 20,
+            background: "var(--surface-0)",
             borderTop: "0.5px solid var(--border)",
-            padding: "12px 2rem",
+            padding: "6px 2rem",
             fontSize: 11,
             color: "var(--text-muted)",
             display: "flex",
             flexDirection: "column",
+            justifyContent: "center",
             gap: 2,
+            boxSizing: "border-box",
           }}
         >
           {currentPharmacist && (

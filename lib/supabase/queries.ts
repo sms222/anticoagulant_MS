@@ -208,6 +208,204 @@ export async function getBiometricsHistory(patientId: string): Promise<Biometric
   return data as BiometricsHistoryEntry[];
 }
 
+export interface PatientListRow {
+  id: string;
+  name: string;
+  mrn: string | null;
+  date_of_birth: string | null;
+  intake_date: string;
+  anticoagulant_type: string;
+  target_inr_low: number | null;
+  target_inr_high: number | null;
+  last_encounter_date: string | null;
+  next_appt_date: string | null;
+}
+
+export async function getPatientListRows(): Promise<PatientListRow[]> {
+  const supabase = createServerClient();
+  const [{ data: patients }, { data: followUps }] = await Promise.all([
+    supabase
+      .from("patients")
+      .select("id, name, mrn, date_of_birth, intake_date, anticoagulant_type, target_inr_low, target_inr_high")
+      .eq("status", "active"),
+    supabase.from("patient_followup_status").select("patient_id, last_encounter_date, next_appt_date"),
+  ]);
+  const followUpById = new Map((followUps ?? []).map((f) => [f.patient_id, f]));
+  return (patients ?? []).map((p) => ({
+    ...p,
+    last_encounter_date: followUpById.get(p.id)?.last_encounter_date ?? null,
+    next_appt_date: followUpById.get(p.id)?.next_appt_date ?? null,
+  }));
+}
+
+export interface ClinicReportData {
+  activePatients: number;
+  newEnrollments30d: number;
+  appointmentsThisWeek: number;
+  appointmentsThisMonth: number;
+  noShowRate30d: number | null;
+  appointmentTypeBreakdown30d: Record<string, number>;
+  workloadByPharmacist: { name: string; count: number }[];
+  avgTtr: number | null;
+  ttrAbove65PctShare: number | null;
+  avgPinrr: number | null;
+  bleedingEvents90d: number;
+  clottingEvents90d: number;
+  avgHasBled: number | null;
+  highHasBledShare: number | null;
+  avgChadsVasc: number | null;
+  highChadsVascShare: number | null;
+  highInrShare: number | null;
+  warfarinPatientsAssessed: number;
+}
+
+export async function getClinicReportData(): Promise<ClinicReportData> {
+  const supabase = createServerClient();
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - today.getDay());
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const [
+    { data: patients },
+    { data: apptsThisWeek },
+    { data: apptsThisMonth },
+    { data: appts30d },
+    { data: events90d },
+    { data: hasBledRows },
+    { data: chadsVascRows },
+    { data: latestInrRows },
+    { data: pharmacists },
+  ] = await Promise.all([
+    supabase
+      .from("patients")
+      .select("id, intake_date, anticoagulant_type, target_inr_low, target_inr_high")
+      .eq("status", "active"),
+    supabase.from("appointments").select("id").gte("scheduled_date", startOfWeek.toISOString().slice(0, 10)).lte("scheduled_date", todayIso),
+    supabase.from("appointments").select("id").gte("scheduled_date", startOfMonth.toISOString().slice(0, 10)).lte("scheduled_date", todayIso),
+    supabase.from("appointments").select("status, appointment_type, pharmacist_id").gte("scheduled_date", thirtyDaysAgo),
+    supabase.from("clinical_events").select("event_type").gte("event_date", ninetyDaysAgo),
+    supabase
+      .from("scoring_tool_results")
+      .select("patient_id, score_value, score_date, scoring_tool_definitions!inner(tool_name)")
+      .eq("scoring_tool_definitions.tool_name", "HAS-BLED")
+      .order("score_date", { ascending: false }),
+    supabase
+      .from("scoring_tool_results")
+      .select("patient_id, score_value, score_date, scoring_tool_definitions!inner(tool_name)")
+      .eq("scoring_tool_definitions.tool_name", "CHA2DS2-VASc")
+      .order("score_date", { ascending: false }),
+    supabase.from("patient_latest_inr").select("patient_id, last_inr"),
+    supabase.from("profiles").select("id, full_name"),
+  ]);
+
+  const activePatientIds = new Set((patients ?? []).map((p) => p.id));
+  const newEnrollments30d = (patients ?? []).filter((p) => p.intake_date >= thirtyDaysAgo).length;
+
+  const noShows = (appts30d ?? []).filter((a) => a.status === "no_show").length;
+  const totalAppts30d = (appts30d ?? []).length;
+  const noShowRate30d = totalAppts30d > 0 ? (noShows / totalAppts30d) * 100 : null;
+
+  const appointmentTypeBreakdown30d: Record<string, number> = {};
+  (appts30d ?? []).forEach((a) => {
+    appointmentTypeBreakdown30d[a.appointment_type] = (appointmentTypeBreakdown30d[a.appointment_type] ?? 0) + 1;
+  });
+
+  const pharmacistNameById = new Map((pharmacists ?? []).map((p) => [p.id, p.full_name]));
+  const countByPharmacist = new Map<string, number>();
+  (appts30d ?? []).forEach((a) => {
+    if (!a.pharmacist_id) return;
+    countByPharmacist.set(a.pharmacist_id, (countByPharmacist.get(a.pharmacist_id) ?? 0) + 1);
+  });
+  const workloadByPharmacist = Array.from(countByPharmacist.entries())
+    .map(([id, count]) => ({ name: pharmacistNameById.get(id) ?? "Unknown", count }))
+    .sort((a, b) => b.count - a.count);
+
+  const bleedingEvents90d = (events90d ?? []).filter((e) => e.event_type === "bleeding").length;
+  const clottingEvents90d = (events90d ?? []).filter((e) => e.event_type === "clotting").length;
+
+  // TTR/PINRR: computed per warfarin patient from their own INR history + target range history.
+  const warfarinPatients = (patients ?? []).filter((p) => p.anticoagulant_type === "warfarin");
+  let ttrValues: number[] = [];
+  let pinrrValues: number[] = [];
+  if (warfarinPatients.length > 0) {
+    const { calculateRosendaalTTR, calculatePINRR } = await import("@/lib/calculators/rosendaal");
+    const ids = warfarinPatients.map((p) => p.id);
+    const [{ data: inrLabs }, { data: targetHistories }] = await Promise.all([
+      supabase.from("lab_results").select("patient_id, result_value, test_date").eq("test_name", "INR").in("patient_id", ids),
+      supabase.from("target_inr_history").select("patient_id, target_inr_low, target_inr_high, effective_date").in("patient_id", ids),
+    ]);
+    for (const p of warfarinPatients) {
+      const readings = (inrLabs ?? [])
+        .filter((l) => l.patient_id === p.id)
+        .map((l) => ({ date: new Date(l.test_date), value: Number(l.result_value) }));
+      const ranges = (targetHistories ?? [])
+        .filter((t) => t.patient_id === p.id)
+        .map((t) => ({ from: new Date(t.effective_date), low: Number(t.target_inr_low), high: Number(t.target_inr_high) }));
+      const finalRanges =
+        ranges.length > 0
+          ? ranges
+          : p.target_inr_low && p.target_inr_high
+          ? [{ from: new Date(p.intake_date), low: p.target_inr_low, high: p.target_inr_high }]
+          : [];
+      if (readings.length >= 2 && finalRanges.length > 0) {
+        ttrValues.push(calculateRosendaalTTR(readings, finalRanges).ttrPercent);
+        pinrrValues.push(calculatePINRR(readings, finalRanges));
+      }
+    }
+  }
+  const avgTtr = ttrValues.length > 0 ? ttrValues.reduce((a, b) => a + b, 0) / ttrValues.length : null;
+  const ttrAbove65PctShare = ttrValues.length > 0 ? (ttrValues.filter((t) => t >= 65).length / ttrValues.length) * 100 : null;
+  const avgPinrr = pinrrValues.length > 0 ? pinrrValues.reduce((a, b) => a + b, 0) / pinrrValues.length : null;
+
+  // Latest HAS-BLED / CHA2DS2-VASc per active patient.
+  function latestPerPatient(rows: { patient_id: string; score_value: number }[] | null): number[] {
+    const seen = new Set<string>();
+    const values: number[] = [];
+    for (const r of rows ?? []) {
+      if (!activePatientIds.has(r.patient_id) || seen.has(r.patient_id)) continue;
+      seen.add(r.patient_id);
+      values.push(r.score_value);
+    }
+    return values;
+  }
+  const hasBledValues = latestPerPatient(hasBledRows as any);
+  const chadsVascValues = latestPerPatient(chadsVascRows as any);
+  const avgHasBled = hasBledValues.length > 0 ? hasBledValues.reduce((a, b) => a + b, 0) / hasBledValues.length : null;
+  const highHasBledShare = hasBledValues.length > 0 ? (hasBledValues.filter((v) => v >= 3).length / hasBledValues.length) * 100 : null;
+  const avgChadsVasc = chadsVascValues.length > 0 ? chadsVascValues.reduce((a, b) => a + b, 0) / chadsVascValues.length : null;
+  const highChadsVascShare =
+    chadsVascValues.length > 0 ? (chadsVascValues.filter((v) => v >= 2).length / chadsVascValues.length) * 100 : null;
+
+  const relevantInr = (latestInrRows ?? []).filter((r) => activePatientIds.has(r.patient_id));
+  const highInrShare =
+    relevantInr.length > 0 ? (relevantInr.filter((r) => Number(r.last_inr) > 4.0).length / relevantInr.length) * 100 : null;
+
+  return {
+    activePatients: activePatientIds.size,
+    newEnrollments30d,
+    appointmentsThisWeek: (apptsThisWeek ?? []).length,
+    appointmentsThisMonth: (apptsThisMonth ?? []).length,
+    noShowRate30d,
+    appointmentTypeBreakdown30d,
+    workloadByPharmacist,
+    avgTtr,
+    ttrAbove65PctShare,
+    avgPinrr,
+    bleedingEvents90d,
+    clottingEvents90d,
+    avgHasBled,
+    highHasBledShare,
+    avgChadsVasc,
+    highChadsVascShare,
+    highInrShare,
+    warfarinPatientsAssessed: ttrValues.length,
+  };
+}
+
 export async function getAllPatients(): Promise<Patient[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase

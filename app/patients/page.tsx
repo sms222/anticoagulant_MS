@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { getAllPatients } from "@/lib/supabase/queries";
-import { PatientSearch } from "@/components/home/PatientSearch";
+import { getPatientListRows } from "@/lib/supabase/queries";
+import { PatientListTable } from "@/components/patients/PatientListTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function PatientsPage() {
-  const patients = await getAllPatients();
+  const rows = await getPatientListRows();
   return (
-    <main style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: 1440, margin: "0 auto" }}>
       <Link href="/" style={{ fontSize: 13, color: "var(--text-secondary)", textDecoration: "none" }}>
         &larr; Back to dashboard
       </Link>
@@ -17,7 +17,7 @@ export default async function PatientsPage() {
           + Add patient
         </Link>
       </div>
-      <PatientSearch patients={patients} />
+      <PatientListTable rows={rows} />
     </main>
   );
 }

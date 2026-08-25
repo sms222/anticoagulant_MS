@@ -516,7 +516,7 @@ viewing any date other than today, rather than showing misleading data.
 Every file built across this whole project used `\uXXXX`-style escape sequences for
 em-dashes, middle dots, and a couple of emoji icons. Something in the write/transport
 path was double-escaping these, so the browser was rendering literal text like
-`\u26a0\ufe0f` instead of the actual character — this was very likely happening
+`⚠️` instead of the actual character — this was very likely happening
 **everywhere** those escapes were used, not just the one alert icon the requester
 happened to notice. Root-caused and fixed by replacing every `\uXXXX` escape across
 `app/`, `components/`, and `lib/` with the actual literal Unicode character, using a
@@ -567,6 +567,130 @@ that's actually wanted.
 row counts unchanged from the session-start baseline (2 appointments, 5 encounters)
 after all query/data-shape changes. Full `next build` clean. Packaged as a zip, not
 pushed to GitHub.
+
+---
+
+## 17. Seventh session — 25 August 2026: branding, KPI reports, lab panels, NOAC dosing, CHA2DS2-VASc
+
+Seven-item request. Two items from it — a non-persisting demo mode and the patient-page
+redesign — are still outstanding from the prior session and weren't addressed here;
+see §16.6, unchanged.
+
+**17.1 Rebranded.** "ACMS" → "UKM AMS" everywhere it appeared (header, login, signup),
+full name "UKM Anticoagulant Management System" in the page title and signup subtitle.
+
+**17.2 Footer no longer requires scrolling.** Header and footer are now
+`position: fixed` to the viewport (`app/layout.tsx`), with the content area between
+them as the only scrollable region (`overflow-y: auto`, height calculated from the two
+fixed bars). The footer is now always visible without scrolling on every page,
+regardless of how much content that page has. Genuinely one caveat worth being upfront
+about: this doesn't make a data-dense page like the dashboard fit in one screen with
+zero scrolling — the *footer* no longer requires scrolling to reach, but the dashboard
+content itself can still scroll internally if it's taller than the viewport. Making the
+dashboard itself fit one screen with no internal scroll would mean cutting information
+density, which cuts against several other things that got added this session and last.
+
+**17.3 Reports page.** New `/reports`, added as a real left-nav destination (not a
+placeholder). `getClinicReportData()` in `queries.ts` computes, live, from actual data
+(not seeded/fake numbers):
+- **Workload:** active patient count, new enrollments (30d), appointments this
+  week/month, no-show rate (30d), appointment-type mix (30d), per-pharmacist workload
+  (30d).
+- **Quality:** clinic-wide average TTR (each warfarin patient's own Rosendaal
+  calculation, averaged), % of patients at TTR ≥65% (a commonly-cited "good
+  control" benchmark in the literature — flagged in-page as something to confirm
+  against the clinic's own target, not asserted as objectively correct), average PINRR,
+  % of latest INR readings > 4.0.
+- **Risk/safety:** bleeding and clotting event counts (90d), average and
+  high-risk-share for both HAS-BLED and CHA2DS2-VASc across active patients.
+
+The page includes an explicit "why these KPIs" note and says outright what's *not*
+built: trend-over-time charts (everything here is a snapshot as of today) and any
+risk-adjustment (a clinic with sicker patients will score worse on some of these
+without that being a quality failure). This was a "determine what's useful and
+suggest" ask, not a fully-specified spec — treat the KPI selection itself as a
+first draft to react to, not a finished product.
+
+**17.4 Lab panels: Renal / Hematology / Hepatic / Coagulation.** New
+`LAB_TEST_CATALOG` in `lib/types.ts` — INR, PT, aPTT (Coagulation); serum
+creatinine, eGFR (Renal Function); hemoglobin, hematocrit, platelet count
+(Hematology); AST, ALT, bilirubin (Hepatic Function). The Labs tab's test-name field
+is now a categorized `<select>` (`<optgroup>` per category) that auto-fills a sensible
+default unit, and there's a Category filter alongside the existing Test filter.
+
+**Real gap found and fixed while building this:** the Labs tab was only ever being
+handed INR and creatinine results from the patient page (`getLabResults(id, "INR")` /
+`getLabResults(id, "Serum creatinine")`, called explicitly). The new categories would
+have been addable via the form but then **invisible** in the tab afterward, since
+nothing fetched them. Fixed by fetching all of a patient's labs
+(`getLabResults(patient.id)`, no filter) and passing that through instead.
+
+**17.5 NOAC dosing reference, with real sources.** Before writing any of this, searched
+for and read actual manufacturer prescribing information / FDA labeling for all four
+NOACs rather than working from memory, per the standing instruction not to assert
+clinical dosing without a verifiable source. `NOAC_DOSING` in `lib/types.ts`, sourced
+to:
+- Rivaroxaban — Xarelto FDA label (accessdata.fda.gov)
+- Apixaban — Eliquis Dosing Guide (eliquis.com)
+- Dabigatran — Pradaxa FDA label (boehringer-ingelheim.com); flagged explicitly
+  that the commonly-used 110mg reduced dose is **not** part of the US label the source
+  is drawn from — it's used in most other markets including Malaysia's NPRA
+  label, which is why the dosing box calls that distinction out rather than presenting
+  110mg as if it were FDA-sourced too.
+- Edoxaban — Savaysa FDA label (DailyMed)
+
+Displayed automatically in the patient sidebar for NOAC patients only, matching
+whichever drug they're actually on, each with a source link and an explicit
+"verify against the current Malaysian package insert" caveat — this is reference
+information, not a substitute for checking the actual local product insert.
+
+**17.6 Sortable patient list.** New `components/patients/PatientListTable.tsx`,
+replacing the old search-only `/patients` page. Columns: Name, MRN, Age, Start date,
+Last appointment, Next appointment, Target INR, Drug — click any header to sort,
+click again to reverse. New `getPatientListRows()` query joins each patient against
+`patient_followup_status` for last/next appointment dates.
+
+**17.7 CHA2DS2-VASc, and comorbidities as the shared source of truth.** New
+`patients.comorbidities` (text array, checklist), `ethnicity`, `smoking_status`
+(explicitly optional per the request), `alcohol_excess` columns. New
+`lib/calculators/cha2ds2-vasc.ts` — same "engine computes, never enter a raw
+score" philosophy as HAS-BLED: CHF, hypertension, diabetes, stroke/TIA history, and
+vascular disease all read from the comorbidities checklist; age brackets and female-sex
+point are derived automatically from DOB and the existing sex field. **HAS-BLED was
+refactored** (`hasBledInputsFromComorbidities()` in `has-bled.ts`) to read
+hypertension, abnormal renal/hepatic function, stroke history, and bleeding history
+from the *same* comorbidities list instead of a separate 6-checkbox form — a
+pharmacist now records comorbidities once and both scores compute from it, rather than
+re-entering overlapping clinical facts twice. Both scoring panels in Dosing →
+Metrics are now one-click "Recalculate" buttons with no form at all. Verified the
+actual math, not just that it compiles: ran `calculateHasBled` and
+`calculateCha2ds2Vasc` via `tsx` against Siti Nur Aisyah's real DOB/sex with a test set
+of comorbidities (hypertension, stroke history, diabetes) and confirmed HAS-BLED=2,
+CHA2DS2-VASc=5 — both match hand-calculation before the test data was reverted.
+
+**17.8 Process note on the unicode-escape bug (see §16.3).** It recurred **five
+separate times** during this session — old habit of typing `—`-style escapes
+in generated code, which is exactly the pattern that caused the original bug. Each time
+was caught with a targeted grep-and-fix immediately after the edit that introduced it,
+before it could compound. Did one final project-wide sweep
+(`grep -rlP '\\\\u[0-9a-fA-F]{4}'` across `app/`, `components/`, `lib/`) before
+packaging and confirmed zero remaining instances, including one in `lib/format.ts`
+that had been sitting since the file was first created last session and was only
+caught by this final sweep, not by any per-edit check.
+
+**17.9 Not done this round**
+- Demo mode and the patient-page redesign — both still pending from §16.6,
+  unchanged.
+- Reports page has no date-range picker (fixed 7/30/90-day windows) and no
+  trend-over-time view — both real features, not attempted here.
+- No PDF/print export of the reports page for actually handing to a department head.
+
+**17.10 Delivery note** — Verified against live Supabase: ran the real calculator
+functions against real patient data (not just typechecked), confirmed patient/
+appointment/encounter/lab/scoring row counts unchanged from baseline after all test
+data was reverted (2 patients, 2 appointments, 5 encounters, 9 lab results, 3 scoring
+results). Full `next build` clean, all routes including the new `/reports` compiling.
+Packaged as a zip, not pushed to GitHub.
 
 ## 9. Who to ask
 

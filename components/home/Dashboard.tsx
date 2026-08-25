@@ -96,6 +96,9 @@ function LeftNav() {
         <Link href="/patients" style={linkStyle}>
           Patients
         </Link>
+        <Link href="/reports" style={linkStyle}>
+          Reports
+        </Link>
       </div>
       <div>
         <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: 0.4 }}>
@@ -445,7 +448,7 @@ function AppointmentsTable({
   selectedDate: string;
   todayIso: string;
 }) {
-  const title = selectedDate === todayIso ? "Today's Appointments" : `Appointments \u2014 ${formatDateDisplay(selectedDate)}`;
+  const title = selectedDate === todayIso ? "Today's Appointments" : `Appointments — ${formatDateDisplay(selectedDate)}`;
   return (
     <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
       <p style={{ fontSize: 13, fontWeight: 500, margin: 0, padding: "14px 16px", borderBottom: "0.5px solid var(--border)" }}>

@@ -5,7 +5,7 @@
  * shown as plain text rather than a native date input.
  */
 export function formatDateDisplay(iso: string | null | undefined): string {
-  if (!iso) return "\u2014";
+  if (!iso) return "—";
   const [year, month, day] = iso.slice(0, 10).split("-");
   if (!year || !month || !day) return iso;
   return `${day}/${month}/${year.slice(2)}`;
@@ -13,7 +13,7 @@ export function formatDateDisplay(iso: string | null | undefined): string {
 
 /** Same idea for a full timestamp (date + time), e.g. added_at columns. */
 export function formatDateTimeDisplay(iso: string | null | undefined): string {
-  if (!iso) return "\u2014";
+  if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const day = String(d.getDate()).padStart(2, "0");

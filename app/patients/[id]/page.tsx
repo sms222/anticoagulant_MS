@@ -24,7 +24,9 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
     encounters,
     inrLabs,
     creatinineLabs,
+    allLabs,
     hasBledResults,
+    chadsVascResults,
     clinicalEvents,
     medications,
     reminders,
@@ -35,7 +37,9 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
     getEncounters(patient.id),
     getLabResults(patient.id, "INR"),
     getLabResults(patient.id, "Serum creatinine"),
+    getLabResults(patient.id),
     getScoringResults(patient.id, "HAS-BLED"),
+    getScoringResults(patient.id, "CHA2DS2-VASc"),
     getClinicalEvents(patient.id),
     getMedications(patient.id),
     getReminders(patient.id),
@@ -51,7 +55,9 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
         encounters={encounters}
         inrLabs={inrLabs}
         creatinineLabs={creatinineLabs}
+        allLabs={allLabs}
         hasBledResults={hasBledResults}
+        chadsVascResults={chadsVascResults}
         clinicalEvents={clinicalEvents}
         medications={medications}
         reminders={reminders}

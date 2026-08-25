@@ -35,12 +35,14 @@ import {
   updateBiometrics,
   updatePatientNotes,
   updatePatientDetails,
+  updatePatientRiskFactors,
   addLabResult,
   updateLabResult,
   deleteLabResult,
   addEncounter,
   updateEncounter,
   addHasBledAssessment,
+  addCha2ds2VascAssessment,
   addMedication,
   updateMedication,
   discontinueMedication,
@@ -53,7 +55,7 @@ import {
   toggleReminder,
   deleteReminder,
 } from "@/app/actions/clinical";
-import { INDICATION_OPTIONS } from "@/lib/types";
+import { INDICATION_OPTIONS, COMORBIDITY_OPTIONS, ETHNICITY_OPTIONS, SMOKING_STATUS_OPTIONS, NOAC_DOSING, LAB_TEST_CATALOG, LAB_CATEGORIES } from "@/lib/types";
 
 type TopTab = "dosing" | "labs" | "contacts" | "notes" | "drugs" | "events" | "reminders";
 type SubTab = "metrics" | "graph" | "history" | "notes";
@@ -63,7 +65,9 @@ export function PatientChart({
   encounters,
   inrLabs,
   creatinineLabs,
+  allLabs,
   hasBledResults,
+  chadsVascResults,
   clinicalEvents,
   medications,
   reminders,
@@ -75,7 +79,9 @@ export function PatientChart({
   encounters: Encounter[];
   inrLabs: LabResult[];
   creatinineLabs: LabResult[];
+  allLabs: LabResult[];
   hasBledResults: ScoringResult[];
+  chadsVascResults: ScoringResult[];
   clinicalEvents: ClinicalEvent[];
   medications: Medication[];
   reminders: Reminder[];
@@ -165,7 +171,12 @@ export function PatientChart({
                   latestCreatinine={latestCreatinine}
                   targetInrHistory={targetInrHistory}
                   hasBledResults={hasBledResults}
+                  chadsVascResults={chadsVascResults}
                   biometricsHistory={biometricsHistory}
+                  ethnicity={patient.ethnicity}
+                  smokingStatus={patient.smoking_status}
+                  comorbidities={patient.comorbidities}
+                  alcoholExcess={patient.alcohol_excess}
                 />
               )}
               {subTab === "graph" && (
@@ -192,7 +203,7 @@ export function PatientChart({
               {subTab === "notes" && <NotesView encounters={encounters} />}
             </>
           )}
-          {topTab === "labs" && <LabsView patientId={patient.id} inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
+          {topTab === "labs" && <LabsView patientId={patient.id} allLabs={allLabs} />}
           {topTab === "contacts" && <ContactsView patientId={patient.id} value={patient.emergency_contact_info} />}
           {topTab === "notes" && <PatientNotesView patientId={patient.id} value={patient.notes} />}
           {topTab === "drugs" && <DrugsView patientId={patient.id} medications={medications} />}
@@ -310,6 +321,39 @@ function PatientDetailsSidebar({
         <SidebarField label="Anticoagulant" value={patient.anticoagulant_type} />
         <SidebarField label="Start date" value={formatDateDisplay(patient.intake_date)} />
       </div>
+      {!warfarin && NOAC_DOSING[patient.anticoagulant_type] && (
+        <NoacDosingBox dosing={NOAC_DOSING[patient.anticoagulant_type]} />
+      )}
+    </div>
+  );
+}
+
+function NoacDosingBox({ dosing }: { dosing: (typeof NOAC_DOSING)[string] }) {
+  return (
+    <div style={{ borderTop: "0.5px solid var(--border)", marginTop: 12, paddingTop: 12 }}>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Dosing reference — {dosing.drug}
+      </p>
+      <p style={{ fontSize: 12, margin: "0 0 2px" }}>
+        <strong>Standard:</strong> {dosing.standardDose}
+      </p>
+      <p style={{ fontSize: 12, margin: "0 0 2px" }}>
+        <strong>Reduced:</strong> {dosing.reducedDose}
+      </p>
+      <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0" }}>{dosing.reductionCriteria}</p>
+      <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 6px" }}>{dosing.renalNotes}</p>
+      <a
+        href={dosing.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ fontSize: 10, color: "var(--text-accent)", textDecoration: "none" }}
+      >
+        Source: {dosing.source}
+      </a>
+      <p style={{ fontSize: 10, color: "var(--text-muted)", margin: "4px 0 0" }}>
+        Reference only — verify against the current Malaysian (NPRA-approved) package insert before applying to
+        a specific patient.
+      </p>
     </div>
   );
 }
@@ -394,7 +438,12 @@ function MetricsView(props: {
   latestCreatinine: LabResult | null;
   targetInrHistory: TargetInrHistoryEntry[];
   hasBledResults: ScoringResult[];
+  chadsVascResults: ScoringResult[];
   biometricsHistory: BiometricsHistoryEntry[];
+  ethnicity: string | null;
+  smokingStatus: string | null;
+  comorbidities: string[];
+  alcoholExcess: boolean;
 }) {
   const {
     patientId,
@@ -409,8 +458,14 @@ function MetricsView(props: {
     latestCreatinine,
     targetInrHistory,
     hasBledResults,
+    chadsVascResults,
     biometricsHistory,
+    ethnicity,
+    smokingStatus,
+    comorbidities,
+    alcoholExcess,
   } = props;
+  const hasComorbidities = comorbidities.length > 0;
 
   if (!warfarin) {
     return (
@@ -419,9 +474,23 @@ function MetricsView(props: {
           <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "—"} />
           <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
         </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <RiskFactorsPanel
+              patientId={patientId}
+              ethnicity={ethnicity}
+              smokingStatus={smokingStatus}
+              comorbidities={comorbidities}
+              alcoholExcess={alcoholExcess}
+            />
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 260 }}>
-            <HasBledPanel patientId={patientId} results={hasBledResults} />
+            <HasBledPanel patientId={patientId} results={hasBledResults} hasComorbidities={hasComorbidities} />
+          </div>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <Cha2ds2VascPanel patientId={patientId} results={chadsVascResults} hasComorbidities={hasComorbidities} />
           </div>
           <div style={{ flex: 1, minWidth: 260 }}>
             <BiometricsPanel patientId={patientId} history={biometricsHistory} />
@@ -444,17 +513,130 @@ function MetricsView(props: {
         <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "—"} />
         <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "—"} />
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <div style={{ flex: 1, minWidth: 260 }}>
           <TargetInrPanel patientId={patientId} history={targetInrHistory} />
         </div>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <HasBledPanel patientId={patientId} results={hasBledResults} />
+          <RiskFactorsPanel
+            patientId={patientId}
+            ethnicity={ethnicity}
+            smokingStatus={smokingStatus}
+            comorbidities={comorbidities}
+            alcoholExcess={alcoholExcess}
+          />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <HasBledPanel patientId={patientId} results={hasBledResults} hasComorbidities={hasComorbidities} />
+        </div>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <Cha2ds2VascPanel patientId={patientId} results={chadsVascResults} hasComorbidities={hasComorbidities} />
+        </div>
+        <div style={{ flex: 1, minWidth: 260 }}>
+
+          <Cha2ds2VascPanel patientId={patientId} results={chadsVascResults} hasComorbidities={hasComorbidities} />
         </div>
         <div style={{ flex: 1, minWidth: 260 }}>
           <BiometricsPanel patientId={patientId} history={biometricsHistory} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function RiskFactorsPanel({
+  patientId,
+  ethnicity,
+  smokingStatus,
+  comorbidities,
+  alcoholExcess,
+}: {
+  patientId: string;
+  ethnicity: string | null;
+  smokingStatus: string | null;
+  comorbidities: string[];
+  alcoholExcess: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const boundUpdate = updatePatientRiskFactors.bind(null, patientId);
+
+  if (!editing) {
+    return (
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, height: "100%" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>Risk factors</p>
+          <SmallButton onClick={() => setEditing(true)}>Edit</SmallButton>
+        </div>
+        <p style={{ fontSize: 12, margin: "8px 0 4px" }}>
+          {ethnicity ?? "Ethnicity not recorded"}
+          {smokingStatus ? ` · ${SMOKING_STATUS_OPTIONS.find((o) => o.value === smokingStatus)?.label ?? smokingStatus}` : ""}
+          {alcoholExcess ? " · Alcohol excess" : ""}
+        </p>
+        {comorbidities.length > 0 ? (
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>{comorbidities.join(", ")}</p>
+        ) : (
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No comorbidities recorded</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12 }}>
+      <form
+        action={async (fd) => {
+          await boundUpdate(fd);
+          setEditing(false);
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <FieldWrap width={160}>
+            <label style={labelStyle}>Ethnicity</label>
+            <select name="ethnicity" defaultValue={ethnicity ?? ""} style={inputStyle}>
+              <option value="">—</option>
+              {ETHNICITY_OPTIONS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+          </FieldWrap>
+          <FieldWrap width={170}>
+            <label style={labelStyle}>Smoking status (optional)</label>
+            <select name="smoking_status" defaultValue={smokingStatus ?? ""} style={inputStyle}>
+              <option value="">Not asked</option>
+              {SMOKING_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </FieldWrap>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)", margin: "6px 0 10px" }}>
+          <input type="checkbox" name="alcohol_excess" defaultChecked={alcoholExcess} style={{ width: "auto", padding: 0 }} />
+          Alcohol excess (≥8 units/week)
+        </label>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>
+          Comorbidities — feeds HAS-BLED and CHA2DS2-VASc directly, nothing else to enter for those scores
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 4, marginBottom: 10 }}>
+          {COMORBIDITY_OPTIONS.map((c) => (
+            <label key={c} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+              <input type="checkbox" name="comorbidities" value={c} defaultChecked={comorbidities.includes(c)} style={{ width: "auto", padding: 0 }} />
+              {c}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <SmallButton type="submit">Save</SmallButton>
+          <SmallButton type="button" onClick={() => setEditing(false)}>
+            Cancel
+          </SmallButton>
+        </div>
+      </form>
     </div>
   );
 }
@@ -517,47 +699,37 @@ function BiometricsPanel({ patientId, history }: { patientId: string; history: B
   );
 }
 
-function HasBledPanel({ patientId, results }: { patientId: string; results: ScoringResult[] }) {
-  const [showForm, setShowForm] = useState(false);
+function HasBledPanel({
+  patientId,
+  results,
+  hasComorbidities,
+}: {
+  patientId: string;
+  results: ScoringResult[];
+  hasComorbidities: boolean;
+}) {
   const boundAdd = addHasBledAssessment.bind(null, patientId);
   const sorted = [...results].sort((a, b) => (a.score_date < b.score_date ? 1 : -1));
   const latest = sorted[0];
 
   return (
-    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showForm ? 10 : 0 }}>
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, height: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>HAS-BLED (bleeding risk)</p>
           <p style={{ fontSize: 15, margin: "2px 0 0" }}>
-            {latest ? `${latest.score_value} / 9 (${latest.score_date})` : "— no assessment yet"}
+            {latest ? `${latest.score_value} / 9 (${formatDateDisplay(latest.score_date)})` : "— no assessment yet"}
           </p>
         </div>
-        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New assessment"}</SmallButton>
-      </div>
-
-      {showForm && (
-        <form
-          action={async (fd) => {
-            await boundAdd(fd);
-            setShowForm(false);
-          }}
-          style={{ marginTop: 10 }}
-        >
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px" }}>
-            Elderly (age), labile INR, and interacting drugs are computed automatically from this
-            patient's own data — only tick what the engine can't already know.
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-            <CheckboxField name="hypertension" label="Hypertension (uncontrolled, SBP > 160)" />
-            <CheckboxField name="abnormalRenal" label="Abnormal renal function (dialysis/transplant/Cr >200)" />
-            <CheckboxField name="abnormalLiver" label="Abnormal liver function (cirrhosis/LFTs >3x)" />
-            <CheckboxField name="strokeHistory" label="Prior stroke" />
-            <CheckboxField name="bleedingHistory" label="Bleeding history or predisposition" />
-            <CheckboxField name="alcoholExcess" label="Alcohol excess (≥8 units/week)" />
-          </div>
-          <SmallButton type="submit">Calculate & save</SmallButton>
+        <form action={boundAdd}>
+          <SmallButton type="submit">Recalculate</SmallButton>
         </form>
-      )}
+      </div>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0" }}>
+        Computed from age, this patient's own TTR, active medications, and the comorbidities/alcohol
+        recorded below — nothing entered here directly.
+        {!hasComorbidities && " No comorbidities recorded yet, so this will likely undercount."}
+      </p>
 
       {sorted.length > 0 && (
         <div style={{ marginTop: 12, borderTop: "0.5px solid var(--border)", paddingTop: 10 }}>
@@ -582,12 +754,57 @@ function HasBledPanel({ patientId, results }: { patientId: string; results: Scor
   );
 }
 
-function CheckboxField({ name, label }: { name: string; label: string }) {
+function Cha2ds2VascPanel({
+  patientId,
+  results,
+  hasComorbidities,
+}: {
+  patientId: string;
+  results: ScoringResult[];
+  hasComorbidities: boolean;
+}) {
+  const boundAdd = addCha2ds2VascAssessment.bind(null, patientId);
+  const sorted = [...results].sort((a, b) => (a.score_date < b.score_date ? 1 : -1));
+  const latest = sorted[0];
+
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
-      <input type="checkbox" name={name} style={{ width: "auto", padding: 0 }} />
-      {label}
-    </label>
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, height: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>CHA2DS2-VASc (stroke risk)</p>
+          <p style={{ fontSize: 15, margin: "2px 0 0" }}>
+            {latest ? `${latest.score_value} / 9 (${formatDateDisplay(latest.score_date)})` : "— no assessment yet"}
+          </p>
+        </div>
+        <form action={boundAdd}>
+          <SmallButton type="submit">Recalculate</SmallButton>
+        </form>
+      </div>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0" }}>
+        Computed from age, sex, and the comorbidities recorded below — nothing entered here directly.
+        {!hasComorbidities && " No comorbidities recorded yet, so this will likely undercount."}
+      </p>
+
+      {sorted.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: "0.5px solid var(--border)", paddingTop: 10 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
+          {sorted.map((r) => (
+            <p key={r.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
+              {r.score_value} / 9 on {formatDateDisplay(r.score_date)}
+              {r.components ? (
+                <span style={{ color: "var(--text-muted)" }}>
+                  {" "}
+                  — {Object.entries(r.components)
+                    .filter(([, v]) => v === true)
+                    .map(([k]) => k)
+                    .join(", ") || "no positive factors"}
+                </span>
+              ) : null}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -920,22 +1137,26 @@ const tdStyle: React.CSSProperties = { padding: "7px 8px" };
 
 function LabsView({
   patientId,
-  inrLabs,
-  creatinineLabs,
+  allLabs,
 }: {
   patientId: string;
-  inrLabs: LabResult[];
-  creatinineLabs: LabResult[];
+  allLabs: LabResult[];
 }) {
-  const allUnsorted = [...inrLabs, ...creatinineLabs];
-  const testNames = Array.from(new Set(allUnsorted.map((l) => l.test_name))).sort();
+  const testNames = Array.from(new Set(allLabs.map((l) => l.test_name))).sort();
+  const [categoryFilter, setCategoryFilter] = useState<string>("Coagulation");
   const [testFilter, setTestFilter] = useState(testNames.includes("INR") ? "INR" : "all");
   const [sortAsc, setSortAsc] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const boundAdd = addLabResult.bind(null, patientId);
 
-  const filtered = testFilter === "all" ? allUnsorted : allUnsorted.filter((l) => l.test_name === testFilter);
+  const testsInCategory = LAB_TEST_CATALOG.filter((t) => t.category === categoryFilter).map((t) => t.name);
+  const filtered =
+    testFilter === "all"
+      ? categoryFilter === "all"
+        ? allLabs
+        : allLabs.filter((l) => testsInCategory.includes(l.test_name))
+      : allLabs.filter((l) => l.test_name === testFilter);
   const all = [...filtered].sort((a, b) =>
     sortAsc ? a.test_date.localeCompare(b.test_date) : b.test_date.localeCompare(a.test_date)
   );
@@ -958,10 +1179,28 @@ function LabsView({
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 10 }}>
+          <FieldWrap width={160}>
+            <label style={labelStyle}>Category</label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setTestFilter("all");
+              }}
+              style={inputStyle}
+            >
+              <option value="all">All categories</option>
+              {LAB_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </FieldWrap>
           <FieldWrap width={170}>
             <label style={labelStyle}>Test</label>
             <select value={testFilter} onChange={(e) => setTestFilter(e.target.value)} style={inputStyle}>
-              <option value="all">All tests</option>
+              <option value="all">All in category</option>
               {testNames.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -1066,25 +1305,39 @@ function LabsView({
 }
 
 function LabResultFields({ lab }: { lab?: LabResult }) {
+  const [testName, setTestName] = useState(lab?.test_name ?? "INR");
+  const [unit, setUnit] = useState(lab?.unit ?? LAB_TEST_CATALOG.find((t) => t.name === "INR")?.defaultUnit ?? "");
+
+  function handleTestChange(name: string) {
+    setTestName(name);
+    const match = LAB_TEST_CATALOG.find((t) => t.name === name);
+    if (match) setUnit(match.defaultUnit);
+  }
+
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-      <FieldWrap width={150}>
+      <FieldWrap width={190}>
         <label style={labelStyle}>Test</label>
-        <input name="test_name" defaultValue={lab?.test_name ?? "INR"} required list="lab-test-names" style={inputStyle} />
-        <datalist id="lab-test-names">
-          <option value="INR" />
-          <option value="Serum creatinine" />
-          <option value="Hb" />
-          <option value="Platelets" />
-        </datalist>
+        <select name="test_name" value={testName} onChange={(e) => handleTestChange(e.target.value)} style={inputStyle}>
+          {LAB_CATEGORIES.map((cat) => (
+            <optgroup key={cat} label={cat}>
+              {LAB_TEST_CATALOG.filter((t) => t.category === cat).map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+          {!LAB_TEST_CATALOG.some((t) => t.name === testName) && <option value={testName}>{testName} (custom)</option>}
+        </select>
       </FieldWrap>
       <FieldWrap width={110}>
         <label style={labelStyle}>Value</label>
         <input name="result_value" type="number" step="0.01" defaultValue={lab?.result_value ?? ""} required style={inputStyle} />
       </FieldWrap>
-      <FieldWrap width={90}>
+      <FieldWrap width={110}>
         <label style={labelStyle}>Unit</label>
-        <input name="unit" defaultValue={lab?.unit ?? ""} style={inputStyle} />
+        <input name="unit" value={unit} onChange={(e) => setUnit(e.target.value)} style={inputStyle} />
       </FieldWrap>
       <FieldWrap width={140}>
         <label style={labelStyle}>Date</label>

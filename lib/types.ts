@@ -27,6 +27,10 @@ export interface Patient {
   address: string | null;
   risk_class: "low" | "medium" | "high" | null;
   emergency_contact_info: string | null;
+  ethnicity: string | null;
+  smoking_status: string | null;
+  comorbidities: string[];
+  alcohol_excess: boolean;
 }
 
 export interface Encounter {
@@ -184,6 +188,113 @@ Secondary contact:
 Relationship:
 Phone:
 `;
+
+export const COMORBIDITY_OPTIONS: string[] = [
+  "Hypertension",
+  "Diabetes mellitus",
+  "Congestive heart failure / LV dysfunction",
+  "Vascular disease (prior MI, PAD, aortic plaque)",
+  "Prior stroke / TIA / thromboembolism",
+  "Chronic kidney disease / renal impairment",
+  "Hepatic impairment / liver disease",
+  "Dyslipidemia",
+  "Thyroid disorder",
+  "Prior major bleeding",
+  "Malignancy",
+];
+
+export const ETHNICITY_OPTIONS: string[] = ["Malay", "Chinese", "Indian", "Bumiputera Sabah/Sarawak", "Other"];
+
+export const SMOKING_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "never", label: "Never smoked" },
+  { value: "former", label: "Former smoker" },
+  { value: "current", label: "Current smoker" },
+];
+
+export interface NoacDosingReference {
+  drug: string;
+  standardDose: string;
+  reducedDose: string;
+  reductionCriteria: string;
+  renalNotes: string;
+  source: string;
+  sourceUrl: string;
+}
+
+/**
+ * Reference dosing for stroke prevention in nonvalvular AF. Pulled from
+ * manufacturer prescribing information / FDA labeling (see source links) —
+ * verify against the current local (NPRA-approved Malaysian) package insert
+ * before applying to a specific patient; labeling can differ by region and
+ * changes over time. This is reference information, not a substitute for
+ * checking the actual product insert or current clinical guidelines.
+ */
+export interface LabTestDefinition {
+  name: string;
+  category: string;
+  defaultUnit: string;
+}
+
+/**
+ * Reference range values below are commonly-cited adult reference ranges —
+ * they vary by lab, analyzer, and population, so treat these as a rough
+ * flag, not a diagnostic threshold, and confirm against your own lab's
+ * reported reference range.
+ */
+export const LAB_TEST_CATALOG: LabTestDefinition[] = [
+  { name: "INR", category: "Coagulation", defaultUnit: "" },
+  { name: "PT", category: "Coagulation", defaultUnit: "sec" },
+  { name: "aPTT", category: "Coagulation", defaultUnit: "sec" },
+  { name: "Serum creatinine", category: "Renal Function", defaultUnit: "µmol/L" },
+  { name: "eGFR", category: "Renal Function", defaultUnit: "mL/min/1.73m²" },
+  { name: "Hemoglobin", category: "Hematology", defaultUnit: "g/dL" },
+  { name: "Hematocrit", category: "Hematology", defaultUnit: "%" },
+  { name: "Platelet count", category: "Hematology", defaultUnit: "x10⁹/L" },
+  { name: "AST", category: "Hepatic Function", defaultUnit: "U/L" },
+  { name: "ALT", category: "Hepatic Function", defaultUnit: "U/L" },
+  { name: "Bilirubin", category: "Hepatic Function", defaultUnit: "µmol/L" },
+];
+
+export const LAB_CATEGORIES: string[] = Array.from(new Set(LAB_TEST_CATALOG.map((t) => t.category)));
+
+export const NOAC_DOSING: Record<string, NoacDosingReference> = {
+  rivaroxaban: {
+    drug: "Rivaroxaban (Xarelto)",
+    standardDose: "20 mg once daily with the evening meal",
+    reducedDose: "15 mg once daily with the evening meal",
+    reductionCriteria: "CrCl 15–50 mL/min",
+    renalNotes: "Avoid use if CrCl < 15 mL/min (limited data). Periodically reassess renal function.",
+    source: "Xarelto full prescribing information, Janssen (FDA label)",
+    sourceUrl: "https://www.accessdata.fda.gov/drugsatfda_docs/label/2018/022406s028lbl.pdf",
+  },
+  apixaban: {
+    drug: "Apixaban (Eliquis)",
+    standardDose: "5 mg twice daily",
+    reducedDose: "2.5 mg twice daily",
+    reductionCriteria: "≥2 of: age ≥80y, body weight ≤60kg, serum creatinine ≥1.5 mg/dL",
+    renalNotes: "Dose reduction is based on age/weight/creatinine criteria, not CrCl directly.",
+    source: "Eliquis Dosing Guide, Bristol Myers Squibb / Pfizer",
+    sourceUrl: "https://www.eliquis.com/assets/buildeasy/us-commercial/eliquis-hcp/en/resources/pdf/Eliquis-Dosing-Guide-Desktop-Version.pdf",
+  },
+  dabigatran: {
+    drug: "Dabigatran (Pradaxa)",
+    standardDose: "150 mg twice daily",
+    reducedDose: "110 mg twice daily (most markets outside the US) or 75 mg twice daily (US label, severe renal impairment)",
+    reductionCriteria: "US label: CrCl 15–30 mL/min → 75mg. Elsewhere (incl. Malaysia's NPRA label), 110mg is also used for age ≥80, high bleeding risk, or verapamil co-therapy — confirm against the local package insert, the 110mg indication differs from the US FDA label.",
+    renalNotes: "Assess renal function before starting and periodically thereafter — dabigatran is the most renally-cleared of the four.",
+    source: "Pradaxa full prescribing information, Boehringer Ingelheim (FDA label)",
+    sourceUrl: "https://content.boehringer-ingelheim.com/DAM/c669f898-0c4e-45a2-ba55-af1e011fdf63/pradaxa%20capsules-us-pi.pdf",
+  },
+  edoxaban: {
+    drug: "Edoxaban (Lixiana/Savaysa)",
+    standardDose: "60 mg once daily",
+    reducedDose: "30 mg once daily",
+    reductionCriteria: "Any of: CrCl 15–50 mL/min, body weight ≤60kg, certain P-gp inhibitors",
+    renalNotes: "Do not use if CrCl > 95 mL/min (reduced efficacy vs warfarin at this dose in trial data) — an alternative anticoagulant is advised instead.",
+    source: "Savaysa full prescribing information, DailyMed / FDA label",
+    sourceUrl: "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=e77d3400-56ad-11e3-949a-0800200c9a66",
+  },
+};
 
 export function isWarfarin(patient: Patient): boolean {
   return patient.anticoagulant_type === "warfarin";

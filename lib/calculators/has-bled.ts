@@ -3,23 +3,25 @@
  * Reference: Pisters R et al., Chest 2010.
  *
  * The score is never entered directly — the engine computes it from
- * component variables. Some of those variables can be derived from data
- * already in the system rather than asked of the clinician:
- *   - Elderly (>65)      — from date of birth
- *   - Labile INR          — from this patient's own computed TTR (<60%)
- *   - Drugs predisposing   — from the active medications list (antiplatelets/NSAIDs)
- * The rest (hypertension, abnormal renal/liver function, stroke history,
- * bleeding history/predisposition, alcohol excess) aren't derivable from
- * structured data here and are asked for directly.
+ * component variables, most of which are read from the patient's recorded
+ * comorbidities list (single source of truth, shared with CHA2DS2-VASc —
+ * see cha2ds2-vasc.ts) rather than asked again here. Only what's genuinely
+ * unique to bleeding risk gets asked: alcohol excess.
+ *   - Hypertension, abnormal renal function, abnormal liver function, stroke
+ *     history, bleeding history — read from patients.comorbidities
+ *   - Elderly (>65)      — derived from date of birth
+ *   - Labile INR          — derived from this patient's own computed TTR (<60%)
+ *   - Drugs predisposing   — derived from the active medications list (antiplatelets/NSAIDs)
+ *   - Alcohol excess      — asked directly (not a comorbidity, a social-history flag)
  */
 
-export interface HasBledManualInputs {
-  hypertension: boolean; // uncontrolled, SBP > 160
-  abnormalRenal: boolean; // dialysis, transplant, or Cr > 200 umol/L
-  abnormalLiver: boolean; // cirrhosis, bilirubin > 2x normal, or AST/ALT/ALP > 3x normal
+export interface HasBledInputs {
+  hypertension: boolean;
+  abnormalRenal: boolean;
+  abnormalLiver: boolean;
   strokeHistory: boolean;
-  bleedingHistory: boolean; // prior major bleed or predisposition (e.g. anemia)
-  alcoholExcess: boolean; // >= 8 units/week
+  bleedingHistory: boolean;
+  alcoholExcess: boolean;
 }
 
 export interface HasBledAutoFactors {
@@ -31,7 +33,7 @@ export interface HasBledAutoFactors {
 export interface HasBledResult {
   score: number;
   maxScore: number;
-  components: HasBledManualInputs & HasBledAutoFactors;
+  components: HasBledInputs & HasBledAutoFactors;
 }
 
 const ANTIPLATELET_NSAID_KEYWORDS = [
@@ -55,8 +57,26 @@ export function detectInteractingDrugs(activeDrugNames: string[]): boolean {
   );
 }
 
+/** Maps the shared comorbidities checklist onto the HAS-BLED-specific inputs
+ *  it can be derived from. Alcohol excess isn't a comorbidity, it's passed
+ *  in separately from patients.alcohol_excess. */
+export function hasBledInputsFromComorbidities(
+  comorbidities: string[],
+  alcoholExcess: boolean
+): HasBledInputs {
+  const has = (label: string) => comorbidities.includes(label);
+  return {
+    hypertension: has("Hypertension"),
+    abnormalRenal: has("Chronic kidney disease / renal impairment"),
+    abnormalLiver: has("Hepatic impairment / liver disease"),
+    strokeHistory: has("Prior stroke / TIA / thromboembolism"),
+    bleedingHistory: has("Prior major bleeding"),
+    alcoholExcess,
+  };
+}
+
 export function calculateHasBled(
-  manual: HasBledManualInputs,
+  manual: HasBledInputs,
   auto: HasBledAutoFactors
 ): HasBledResult {
   const components = { ...manual, ...auto };
