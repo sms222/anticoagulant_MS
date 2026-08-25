@@ -11,7 +11,7 @@ export default function NewPatientPage() {
   const isWarfarin = anticoagulant === "warfarin";
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 640, margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: 760, margin: "0 auto" }}>
       <Link href="/" style={{ fontSize: 13, color: "var(--text-secondary)", textDecoration: "none" }}>
         &larr; Back to list
       </Link>

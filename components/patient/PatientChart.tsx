@@ -10,8 +10,8 @@ import type {
   ClinicalEvent,
   Medication,
   Reminder,
-  PatientDocument,
   TargetInrHistoryEntry,
+  BiometricsHistoryEntry,
 } from "@/lib/types";
 import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import {
@@ -30,6 +30,8 @@ import {
 import {
   updateEmergencyContact,
   updateTargetInr,
+  updateBiometrics,
+  updatePatientNotes,
   updatePatientDetails,
   addLabResult,
   updateLabResult,
@@ -38,26 +40,21 @@ import {
   updateEncounter,
   addHasBledAssessment,
   addMedication,
+  updateMedication,
   discontinueMedication,
   deleteMedication,
   addClinicalEvent,
+  updateClinicalEvent,
   deleteClinicalEvent,
   addReminder,
+  updateReminder,
   toggleReminder,
   deleteReminder,
-  addPatientDocument,
-  deletePatientDocument,
 } from "@/app/actions/clinical";
 import { INDICATION_OPTIONS } from "@/lib/types";
 
-type TopTab = "dosing" | "labs" | "contacts" | "drugs" | "events" | "reminders" | "documents";
+type TopTab = "dosing" | "labs" | "contacts" | "notes" | "drugs" | "events" | "reminders";
 type SubTab = "metrics" | "graph" | "history" | "notes";
-
-const riskColors: Record<string, { bg: string; text: string }> = {
-  high: { bg: "var(--bg-danger)", text: "var(--text-danger)" },
-  medium: { bg: "var(--bg-warning)", text: "var(--text-warning)" },
-  low: { bg: "var(--bg-success)", text: "var(--text-success)" },
-};
 
 export function PatientChart({
   patient,
@@ -68,8 +65,8 @@ export function PatientChart({
   clinicalEvents,
   medications,
   reminders,
-  documents,
   targetInrHistory,
+  biometricsHistory,
 }: {
   patient: Patient;
   encounters: Encounter[];
@@ -79,8 +76,8 @@ export function PatientChart({
   clinicalEvents: ClinicalEvent[];
   medications: Medication[];
   reminders: Reminder[];
-  documents: PatientDocument[];
   targetInrHistory: TargetInrHistoryEntry[];
+  biometricsHistory: BiometricsHistoryEntry[];
 }) {
   const [topTab, setTopTab] = useState<TopTab>("dosing");
   const [subTab, setSubTab] = useState<SubTab>("metrics");
@@ -126,8 +123,6 @@ export function PatientChart({
     return Math.round(totalDays / (sorted.length - 1));
   })();
 
-  const risk = patient.risk_class ? riskColors[patient.risk_class] : null;
-
   function handlePrint() {
     window.print();
   }
@@ -144,9 +139,9 @@ export function PatientChart({
       </div>
 
       <div style={{ display: "flex" }}>
-        <PatientDetailsSidebar patient={patient} age={age} warfarin={warfarin} risk={risk} />
+        <PatientDetailsSidebar patient={patient} age={age} warfarin={warfarin} />
 
-        <div style={{ flex: 1, padding: "14px 18px", minWidth: 0 }}>
+        <div style={{ flex: 1, padding: "16px 28px", minWidth: 0 }}>
           <TopTabBar topTab={topTab} setTopTab={setTopTab} />
 
           {topTab === "dosing" && (
@@ -166,6 +161,7 @@ export function PatientChart({
                   latestCreatinine={latestCreatinine}
                   targetInrHistory={targetInrHistory}
                   hasBledResults={hasBledResults}
+                  biometricsHistory={biometricsHistory}
                 />
               )}
               {subTab === "graph" && (
@@ -193,10 +189,10 @@ export function PatientChart({
           )}
           {topTab === "labs" && <LabsView patientId={patient.id} inrLabs={inrLabs} creatinineLabs={creatinineLabs} />}
           {topTab === "contacts" && <ContactsView patientId={patient.id} value={patient.emergency_contact_info} />}
+          {topTab === "notes" && <PatientNotesView patientId={patient.id} value={patient.notes} />}
           {topTab === "drugs" && <DrugsView patientId={patient.id} medications={medications} />}
           {topTab === "events" && <EventsView patientId={patient.id} events={clinicalEvents} />}
           {topTab === "reminders" && <RemindersView patientId={patient.id} reminders={reminders} />}
-          {topTab === "documents" && <DocumentsView patientId={patient.id} documents={documents} />}
         </div>
       </div>
 
@@ -216,12 +212,10 @@ function PatientDetailsSidebar({
   patient,
   age,
   warfarin,
-  risk,
 }: {
   patient: Patient;
   age: number | null;
   warfarin: boolean;
-  risk: { bg: string; text: string } | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [indication, setIndication] = useState(patient.indication);
@@ -229,7 +223,7 @@ function PatientDetailsSidebar({
 
   if (editing) {
     return (
-      <div style={{ width: 260, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
+      <div style={{ width: 280, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
         <form
           action={async (fd) => {
             await boundUpdate(fd);
@@ -244,16 +238,6 @@ function PatientDetailsSidebar({
             <label style={labelStyle}>Address</label>
             <input name="address" defaultValue={patient.address ?? ""} style={inputStyle} />
           </FieldWrap>
-          <div style={{ display: "flex", gap: 8 }}>
-            <FieldWrap>
-              <label style={labelStyle}>Weight (kg)</label>
-              <input name="weight_kg" type="number" step="0.1" defaultValue={patient.weight_kg ?? ""} style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap>
-              <label style={labelStyle}>Height (cm)</label>
-              <input name="height_cm" type="number" step="0.1" defaultValue={patient.height_cm ?? ""} style={inputStyle} />
-            </FieldWrap>
-          </div>
           <FieldWrap>
             <label style={labelStyle}>Indication</label>
             <select name="indication" value={indication} onChange={(e) => setIndication(e.target.value)} style={inputStyle}>
@@ -282,15 +266,6 @@ function PatientDetailsSidebar({
             </select>
           </FieldWrap>
           <FieldWrap>
-            <label style={labelStyle}>Risk class</label>
-            <select name="risk_class" defaultValue={patient.risk_class ?? ""} style={inputStyle}>
-              <option value="">\u2014</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </FieldWrap>
-          <FieldWrap>
             <label style={labelStyle}>Start date</label>
             <input name="intake_date" type="date" defaultValue={patient.intake_date} style={inputStyle} />
           </FieldWrap>
@@ -306,29 +281,8 @@ function PatientDetailsSidebar({
   }
 
   return (
-    <div style={{ width: 180, flexShrink: 0, padding: 14, borderRight: "0.5px solid var(--border)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        {patient.risk_class && risk ? (
-          <div>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px" }}>Risk class</p>
-            <span
-              style={{
-                background: risk.bg,
-                color: risk.text,
-                fontSize: 12,
-                padding: "2px 8px",
-                borderRadius: "var(--radius)",
-                display: "inline-block",
-                marginBottom: 12,
-                textTransform: "capitalize",
-              }}
-            >
-              {patient.risk_class}
-            </span>
-          </div>
-        ) : (
-          <div />
-        )}
+    <div style={{ width: 260, flexShrink: 0, padding: 16, borderRight: "0.5px solid var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <button
           onClick={() => setEditing(true)}
           title="Edit patient details"
@@ -369,10 +323,10 @@ function TopTabBar({ topTab, setTopTab }: { topTab: TopTab; setTopTab: (t: TopTa
     { key: "dosing", label: "Dosing" },
     { key: "labs", label: "Labs" },
     { key: "contacts", label: "Contacts" },
+    { key: "notes", label: "Notes" },
     { key: "drugs", label: "Drugs" },
     { key: "events", label: "Events" },
     { key: "reminders", label: "Reminders" },
-    { key: "documents", label: "Documents" },
   ];
   return (
     <div style={{ display: "flex", gap: 16, borderBottom: "0.5px solid var(--border)", marginBottom: 14, fontSize: 13, flexWrap: "wrap" }}>
@@ -435,6 +389,7 @@ function MetricsView(props: {
   latestCreatinine: LabResult | null;
   targetInrHistory: TargetInrHistoryEntry[];
   hasBledResults: ScoringResult[];
+  biometricsHistory: BiometricsHistoryEntry[];
 }) {
   const {
     patientId,
@@ -449,23 +404,31 @@ function MetricsView(props: {
     latestCreatinine,
     targetInrHistory,
     hasBledResults,
+    biometricsHistory,
   } = props;
 
   if (!warfarin) {
     return (
       <div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
           <MetricCard label="Latest SCr" value={latestCreatinine ? `${latestCreatinine.result_value} ${latestCreatinine.unit}` : "\u2014"} />
           <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
         </div>
-        <HasBledPanel patientId={patientId} results={hasBledResults} />
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <HasBledPanel patientId={patientId} results={hasBledResults} />
+          </div>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <BiometricsPanel patientId={patientId} history={biometricsHistory} />
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
         <MetricCard label="TTR (Rosendaal)" value={ttr ? `${ttr.ttrPercent.toFixed(0)}%` : "\u2014"} />
         <MetricCard label="PINRR" value={pinrr !== null ? `${pinrr.toFixed(0)}%` : "\u2014"} />
         <MetricCard label="CV-INR" value={variability ? `${variability.coefficientOfVariation.toFixed(1)}%` : "\u2014"} />
@@ -476,9 +439,75 @@ function MetricsView(props: {
         <MetricCard label="Extreme values" value={extremeRate !== null ? `${extremeRate.toFixed(0)}%` : "\u2014"} />
         <MetricCard label="HAS-BLED" value={latestHasBled?.toString() ?? "\u2014"} />
       </div>
-      <TargetInrPanel patientId={patientId} history={targetInrHistory} />
-      <div style={{ height: 12 }} />
-      <HasBledPanel patientId={patientId} results={hasBledResults} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <TargetInrPanel patientId={patientId} history={targetInrHistory} />
+        </div>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <HasBledPanel patientId={patientId} results={hasBledResults} />
+        </div>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <BiometricsPanel patientId={patientId} history={biometricsHistory} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BiometricsPanel({ patientId, history }: { patientId: string; history: BiometricsHistoryEntry[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const boundUpdate = updateBiometrics.bind(null, patientId);
+  const sorted = [...history].sort((a, b) => (a.effective_date < b.effective_date ? 1 : -1));
+  const current = sorted[0];
+
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, height: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showForm ? 10 : 0 }}>
+        <div>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>Weight / height</p>
+          <p style={{ fontSize: 15, margin: "2px 0 0" }}>
+            {current ? `${current.weight_kg ?? "\u2014"}kg \u00b7 ${current.height_cm ?? "\u2014"}cm` : "\u2014"}
+          </p>
+        </div>
+        <SmallButton onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Update at this visit"}</SmallButton>
+      </div>
+
+      {showForm && (
+        <form
+          action={async (fd) => {
+            await boundUpdate(fd);
+            setShowForm(false);
+          }}
+          style={{ display: "flex", gap: 10, alignItems: "flex-end", marginTop: 10, flexWrap: "wrap" }}
+        >
+          <FieldWrap width={100}>
+            <label style={labelStyle}>Weight (kg)</label>
+            <input name="weight_kg" type="number" step="0.1" style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap width={100}>
+            <label style={labelStyle}>Height (cm)</label>
+            <input name="height_cm" type="number" step="0.1" style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap width={140}>
+            <label style={labelStyle}>Effective from</label>
+            <input name="effective_date" type="date" style={inputStyle} />
+          </FieldWrap>
+          <div style={{ marginBottom: 10 }}>
+            <SmallButton type="submit">Save</SmallButton>
+          </div>
+        </form>
+      )}
+
+      {sorted.length > 1 && (
+        <div style={{ marginTop: 12, borderTop: "0.5px solid var(--border)", paddingTop: 10 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 6px" }}>History</p>
+          {sorted.map((b) => (
+            <p key={b.id} style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>
+              {b.weight_kg ?? "\u2014"}kg \u00b7 {b.height_cm ?? "\u2014"}cm on {b.effective_date}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -878,10 +907,18 @@ function LabsView({
   inrLabs: LabResult[];
   creatinineLabs: LabResult[];
 }) {
-  const all = [...inrLabs, ...creatinineLabs].sort((a, b) => b.test_date.localeCompare(a.test_date));
+  const allUnsorted = [...inrLabs, ...creatinineLabs];
+  const testNames = Array.from(new Set(allUnsorted.map((l) => l.test_name))).sort();
+  const [testFilter, setTestFilter] = useState(testNames.includes("INR") ? "INR" : "all");
+  const [sortAsc, setSortAsc] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const boundAdd = addLabResult.bind(null, patientId);
+
+  const filtered = testFilter === "all" ? allUnsorted : allUnsorted.filter((l) => l.test_name === testFilter);
+  const all = [...filtered].sort((a, b) =>
+    sortAsc ? a.test_date.localeCompare(b.test_date) : b.test_date.localeCompare(a.test_date)
+  );
 
   return (
     <div>
@@ -899,7 +936,27 @@ function LabsView({
         Paste a lab screenshot here to auto-fill results \u2014 not wired up yet, pending AI pipeline approval
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <FieldWrap width={170}>
+            <label style={labelStyle}>Test</label>
+            <select value={testFilter} onChange={(e) => setTestFilter(e.target.value)} style={inputStyle}>
+              <option value="all">All tests</option>
+              {testNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </FieldWrap>
+          <FieldWrap width={150}>
+            <label style={labelStyle}>Order</label>
+            <select value={sortAsc ? "asc" : "desc"} onChange={(e) => setSortAsc(e.target.value === "asc")} style={inputStyle}>
+              <option value="asc">Oldest first</option>
+              <option value="desc">Newest first</option>
+            </select>
+          </FieldWrap>
+        </div>
         <SmallButton onClick={() => setShowAdd((v) => !v)}>{showAdd ? "Cancel" : "+ Add lab result"}</SmallButton>
       </div>
 
@@ -928,51 +985,59 @@ function LabsView({
             </tr>
           </thead>
           <tbody>
-            {all.map((l) => {
-              const isEditing = editingId === l.id;
-              const boundUpdate = updateLabResult.bind(null, patientId, l.id);
-              const boundDelete = deleteLabResult.bind(null, patientId, l.id);
-              if (isEditing) {
+            {all.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                  No {testFilter === "all" ? "" : testFilter} results recorded.
+                </td>
+              </tr>
+            ) : (
+              all.map((l) => {
+                const isEditing = editingId === l.id;
+                const boundUpdate = updateLabResult.bind(null, patientId, l.id);
+                const boundDelete = deleteLabResult.bind(null, patientId, l.id);
+                if (isEditing) {
+                  return (
+                    <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
+                      <td colSpan={5} style={{ padding: 10 }}>
+                        <form
+                          action={async (fd) => {
+                            await boundUpdate(fd);
+                            setEditingId(null);
+                          }}
+                        >
+                          <LabResultFields lab={l} />
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <SmallButton type="submit">Save</SmallButton>
+                            <SmallButton type="button" onClick={() => setEditingId(null)}>
+                              Cancel
+                            </SmallButton>
+                          </div>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                    <td colSpan={5} style={{ padding: 10 }}>
-                      <form
-                        action={async (fd) => {
-                          await boundUpdate(fd);
-                          setEditingId(null);
-                        }}
-                      >
-                        <LabResultFields lab={l} />
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <SmallButton type="submit">Save</SmallButton>
-                          <SmallButton type="button" onClick={() => setEditingId(null)}>
-                            Cancel
+                    <td style={tdStyle}>{l.test_date}</td>
+                    <td style={tdStyle}>{l.test_name}</td>
+                    <td style={tdStyle}>{l.result_value} {l.unit}</td>
+                    <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
+                    <td style={tdStyle}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <SmallButton onClick={() => setEditingId(l.id)}>Edit</SmallButton>
+                        <form action={boundDelete}>
+                          <SmallButton type="submit" variant="danger">
+                            Delete
                           </SmallButton>
-                        </div>
-                      </form>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 );
-              }
-              return (
-                <tr key={l.id} style={{ borderBottom: "0.5px solid var(--border)" }}>
-                  <td style={tdStyle}>{l.test_date}</td>
-                  <td style={tdStyle}>{l.test_name}</td>
-                  <td style={tdStyle}>{l.result_value} {l.unit}</td>
-                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{l.source}</td>
-                  <td style={tdStyle}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <SmallButton onClick={() => setEditingId(l.id)}>Edit</SmallButton>
-                      <form action={boundDelete}>
-                        <SmallButton type="submit" variant="danger">
-                          Delete
-                        </SmallButton>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+              })
+            )}
           </tbody>
         </table>
       </div>
@@ -1158,38 +1223,7 @@ function DrugsView({ patientId, medications }: { patientId: string; medications:
           }}
           style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
         >
-          <div style={{ display: "flex", gap: 10 }}>
-            <FieldWrap>
-              <label style={labelStyle}>Drug name</label>
-              <input name="drug_name" required style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap width={110}>
-              <label style={labelStyle}>Dose</label>
-              <input name="dose" required placeholder="e.g. 5mg" style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap width={110}>
-              <label style={labelStyle}>Frequency</label>
-              <input name="frequency" required placeholder="e.g. OD" style={inputStyle} />
-            </FieldWrap>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <FieldWrap width={130}>
-              <label style={labelStyle}>Route</label>
-              <input name="route" placeholder="oral" style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap>
-              <label style={labelStyle}>Indication</label>
-              <input name="indication" style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap width={140}>
-              <label style={labelStyle}>Start date</label>
-              <input name="start_date" type="date" style={inputStyle} />
-            </FieldWrap>
-          </div>
-          <FieldWrap>
-            <label style={labelStyle}>Notes</label>
-            <input name="notes" style={inputStyle} />
-          </FieldWrap>
+          <MedicationFields />
           <SmallButton type="submit">Save medication</SmallButton>
         </form>
       )}
@@ -1214,8 +1248,32 @@ function DrugsView({ patientId, medications }: { patientId: string; medications:
 }
 
 function MedicationRow({ patientId, medication }: { patientId: string; medication: Medication }) {
+  const [editing, setEditing] = useState(false);
   const boundDiscontinue = discontinueMedication.bind(null, patientId, medication.id);
   const boundDelete = deleteMedication.bind(null, patientId, medication.id);
+  const boundUpdate = updateMedication.bind(null, patientId, medication.id);
+
+  if (editing) {
+    return (
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 6 }}>
+        <form
+          action={async (fd) => {
+            await boundUpdate(fd);
+            setEditing(false);
+          }}
+        >
+          <MedicationFields medication={medication} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <SmallButton type="submit">Save</SmallButton>
+            <SmallButton type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </SmallButton>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1241,6 +1299,7 @@ function MedicationRow({ patientId, medication }: { patientId: string; medicatio
         </p>
       </div>
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <SmallButton onClick={() => setEditing(true)}>Edit</SmallButton>
         {medication.active && (
           <form action={boundDiscontinue}>
             <SmallButton type="submit">Discontinue</SmallButton>
@@ -1251,6 +1310,45 @@ function MedicationRow({ patientId, medication }: { patientId: string; medicatio
         </form>
       </div>
     </div>
+  );
+}
+
+function MedicationFields({ medication }: { medication?: Medication }) {
+  return (
+    <>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FieldWrap>
+          <label style={labelStyle}>Drug name</label>
+          <input name="drug_name" defaultValue={medication?.drug_name} required style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap width={110}>
+          <label style={labelStyle}>Dose</label>
+          <input name="dose" defaultValue={medication?.dose} required placeholder="e.g. 5mg" style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap width={110}>
+          <label style={labelStyle}>Frequency</label>
+          <input name="frequency" defaultValue={medication?.frequency} required placeholder="e.g. OD" style={inputStyle} />
+        </FieldWrap>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FieldWrap width={130}>
+          <label style={labelStyle}>Route</label>
+          <input name="route" defaultValue={medication?.route ?? ""} placeholder="oral" style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap>
+          <label style={labelStyle}>Indication</label>
+          <input name="indication" defaultValue={medication?.indication ?? ""} style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap width={140}>
+          <label style={labelStyle}>Start date</label>
+          <input name="start_date" type="date" defaultValue={medication?.start_date} style={inputStyle} />
+        </FieldWrap>
+      </div>
+      <FieldWrap>
+        <label style={labelStyle}>Notes</label>
+        <input name="notes" defaultValue={medication?.notes ?? ""} style={inputStyle} />
+      </FieldWrap>
+    </>
   );
 }
 
@@ -1266,7 +1364,7 @@ const eventTypeColors: Record<string, { bg: string; text: string }> = {
 
 function EventsView({ patientId, events }: { patientId: string; events: ClinicalEvent[] }) {
   const [showForm, setShowForm] = useState(false);
-  const [eventType, setEventType] = useState("bleeding");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const boundAdd = addClinicalEvent.bind(null, patientId);
 
   return (
@@ -1283,48 +1381,7 @@ function EventsView({ patientId, events }: { patientId: string; events: Clinical
           }}
           style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
         >
-          <div style={{ display: "flex", gap: 10 }}>
-            <FieldWrap width={160}>
-              <label style={labelStyle}>Event type</label>
-              <select
-                name="event_type"
-                value={eventType}
-                onChange={(e) => setEventType(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="bleeding">Bleeding</option>
-                <option value="clotting">Clotting</option>
-                <option value="hospitalization">Hospitalization</option>
-                <option value="other">Other</option>
-              </select>
-            </FieldWrap>
-            {eventType === "bleeding" && (
-              <FieldWrap width={160}>
-                <label style={labelStyle}>Severity (ISTH)</label>
-                <select name="bleeding_severity" defaultValue="minor" style={inputStyle}>
-                  <option value="major">Major</option>
-                  <option value="crnm">CRNM</option>
-                  <option value="minor">Minor</option>
-                </select>
-              </FieldWrap>
-            )}
-            <FieldWrap width={140}>
-              <label style={labelStyle}>Date</label>
-              <input name="event_date" type="date" style={inputStyle} />
-            </FieldWrap>
-            <FieldWrap width={110}>
-              <label style={labelStyle}>INR at event</label>
-              <input name="inr_at_event" type="number" step="0.1" style={inputStyle} />
-            </FieldWrap>
-          </div>
-          <FieldWrap>
-            <label style={labelStyle}>Description</label>
-            <input name="description" required style={inputStyle} />
-          </FieldWrap>
-          <FieldWrap>
-            <label style={labelStyle}>Outcome</label>
-            <input name="outcome" style={inputStyle} />
-          </FieldWrap>
+          <EventFields />
           <SmallButton type="submit">Save event</SmallButton>
         </form>
       )}
@@ -1335,6 +1392,30 @@ function EventsView({ patientId, events }: { patientId: string; events: Clinical
         events.map((ev) => {
           const colors = eventTypeColors[ev.event_type];
           const boundDelete = deleteClinicalEvent.bind(null, patientId, ev.id);
+          const boundUpdate = updateClinicalEvent.bind(null, patientId, ev.id);
+          const isEditing = editingId === ev.id;
+
+          if (isEditing) {
+            return (
+              <div key={ev.id} style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 6 }}>
+                <form
+                  action={async (fd) => {
+                    await boundUpdate(fd);
+                    setEditingId(null);
+                  }}
+                >
+                  <EventFields event={ev} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <SmallButton type="submit">Save</SmallButton>
+                    <SmallButton type="button" onClick={() => setEditingId(null)}>
+                      Cancel
+                    </SmallButton>
+                  </div>
+                </form>
+              </div>
+            );
+          }
+
           return (
             <div
               key={ev.id}
@@ -1371,14 +1452,62 @@ function EventsView({ patientId, events }: { patientId: string; events: Clinical
                 <p style={{ fontSize: 13, margin: 0 }}>{ev.description}</p>
                 {ev.outcome && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>Outcome: {ev.outcome}</p>}
               </div>
-              <form action={boundDelete}>
-                <SmallButton type="submit" variant="danger">Delete</SmallButton>
-              </form>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <SmallButton onClick={() => setEditingId(ev.id)}>Edit</SmallButton>
+                <form action={boundDelete}>
+                  <SmallButton type="submit" variant="danger">Delete</SmallButton>
+                </form>
+              </div>
             </div>
           );
         })
       )}
     </div>
+  );
+}
+
+function EventFields({ event }: { event?: ClinicalEvent }) {
+  const [eventType, setEventType] = useState<string>(event?.event_type ?? "bleeding");
+  return (
+    <>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FieldWrap width={160}>
+          <label style={labelStyle}>Event type</label>
+          <select name="event_type" value={eventType} onChange={(e) => setEventType(e.target.value)} style={inputStyle}>
+            <option value="bleeding">Bleeding</option>
+            <option value="clotting">Clotting</option>
+            <option value="hospitalization">Hospitalization</option>
+            <option value="other">Other</option>
+          </select>
+        </FieldWrap>
+        {eventType === "bleeding" && (
+          <FieldWrap width={160}>
+            <label style={labelStyle}>Severity (ISTH)</label>
+            <select name="bleeding_severity" defaultValue={event?.bleeding_severity ?? "minor"} style={inputStyle}>
+              <option value="major">Major</option>
+              <option value="crnm">CRNM</option>
+              <option value="minor">Minor</option>
+            </select>
+          </FieldWrap>
+        )}
+        <FieldWrap width={140}>
+          <label style={labelStyle}>Date</label>
+          <input name="event_date" type="date" defaultValue={event?.event_date} style={inputStyle} />
+        </FieldWrap>
+        <FieldWrap width={110}>
+          <label style={labelStyle}>INR at event</label>
+          <input name="inr_at_event" type="number" step="0.1" defaultValue={event?.inr_at_event ?? ""} style={inputStyle} />
+        </FieldWrap>
+      </div>
+      <FieldWrap>
+        <label style={labelStyle}>Description</label>
+        <input name="description" defaultValue={event?.description} required style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap>
+        <label style={labelStyle}>Outcome</label>
+        <input name="outcome" defaultValue={event?.outcome ?? ""} style={inputStyle} />
+      </FieldWrap>
+    </>
   );
 }
 
@@ -1429,8 +1558,40 @@ function RemindersView({ patientId, reminders }: { patientId: string; reminders:
 }
 
 function ReminderRow({ patientId, reminder, overdue }: { patientId: string; reminder: Reminder; overdue: boolean }) {
+  const [editing, setEditing] = useState(false);
   const boundToggle = toggleReminder.bind(null, patientId, reminder.id, !reminder.completed);
   const boundDelete = deleteReminder.bind(null, patientId, reminder.id);
+  const boundUpdate = updateReminder.bind(null, patientId, reminder.id);
+
+  if (editing) {
+    return (
+      <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 10, marginBottom: 6 }}>
+        <form
+          action={async (fd) => {
+            await boundUpdate(fd);
+            setEditing(false);
+          }}
+          style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}
+        >
+          <FieldWrap>
+            <label style={labelStyle}>Task</label>
+            <input name="task" defaultValue={reminder.task} required style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap width={150}>
+            <label style={labelStyle}>Due date</label>
+            <input name="due_date" type="date" defaultValue={reminder.due_date ?? ""} style={inputStyle} />
+          </FieldWrap>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <SmallButton type="submit">Save</SmallButton>
+            <SmallButton type="button" onClick={() => setEditing(false)}>
+              Cancel
+            </SmallButton>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1469,82 +1630,73 @@ function ReminderRow({ patientId, reminder, overdue }: { patientId: string; remi
           )}
         </div>
       </div>
-      <form action={boundDelete}>
-        <SmallButton type="submit" variant="danger">Delete</SmallButton>
-      </form>
+      <div style={{ display: "flex", gap: 6 }}>
+        <SmallButton onClick={() => setEditing(true)}>Edit</SmallButton>
+        <form action={boundDelete}>
+          <SmallButton type="submit" variant="danger">Delete</SmallButton>
+        </form>
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Documents — link/metadata list. No file bytes stored; see handover notes
-// on why real upload is deferred (Supabase Storage + governance sign-off).
+// Notes — general free text at the patient level (links can just be pasted
+// in as plain text; this replaced the separate Documents tab)
 // ---------------------------------------------------------------------------
-function DocumentsView({ patientId, documents }: { patientId: string; documents: PatientDocument[] }) {
-  const boundAdd = addPatientDocument.bind(null, patientId);
+function PatientNotesView({ patientId, value }: { patientId: string; value: string | null }) {
+  const [editing, setEditing] = useState(!value);
+  const boundUpdate = updatePatientNotes.bind(null, patientId);
+
+  if (!editing) {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <SmallButton onClick={() => setEditing(true)}>Edit</SmallButton>
+        </div>
+        <pre
+          style={{
+            fontFamily: "inherit",
+            fontSize: 14,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            margin: 0,
+            border: "0.5px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: 12,
+          }}
+        >
+          {value}
+        </pre>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div
-        style={{
-          border: "1.5px dashed var(--border-strong)",
-          borderRadius: 12,
-          padding: "0.9rem 1rem",
-          marginBottom: 16,
-          color: "var(--text-secondary)",
-          fontSize: 12,
-        }}
-      >
-        This stores links, not files \u2014 actual file upload needs a Supabase Storage bucket and the same
-        governance sign-off as the AI pipeline. Paste a link to where the document already lives (e.g. hospital
-        EMR, shared drive).
+    <form
+      action={async (fd) => {
+        await boundUpdate(fd);
+        setEditing(false);
+      }}
+    >
+      <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>
+        General notes on this patient. Free text \u2014 paste links here too (e.g. to a document already
+        on the hospital EMR or shared drive); there's no separate file storage.
+      </p>
+      <textarea
+        name="notes"
+        defaultValue={value ?? ""}
+        rows={10}
+        style={{ ...inputStyle, fontFamily: "inherit", lineHeight: 1.6, resize: "vertical" }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+        <SmallButton type="submit">Save</SmallButton>
+        {value && (
+          <SmallButton type="button" onClick={() => setEditing(false)}>
+            Cancel
+          </SmallButton>
+        )}
       </div>
-
-      <form action={boundAdd} style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "flex-end" }}>
-        <FieldWrap width={220}>
-          <label style={labelStyle}>Label</label>
-          <input name="label" required placeholder="e.g. Discharge summary" style={inputStyle} />
-        </FieldWrap>
-        <FieldWrap>
-          <label style={labelStyle}>Link</label>
-          <input name="url" type="url" required placeholder="https://\u2026" style={inputStyle} />
-        </FieldWrap>
-        <div style={{ marginBottom: 10 }}>
-          <SmallButton type="submit">Add</SmallButton>
-        </div>
-      </form>
-
-      {documents.length === 0 ? (
-        <EmptyState text="No document links added." />
-      ) : (
-        documents.map((d) => {
-          const boundDelete = deletePatientDocument.bind(null, patientId, d.id);
-          return (
-            <div
-              key={d.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "7px 10px",
-                border: "0.5px solid var(--border)",
-                borderRadius: "var(--radius)",
-                marginBottom: 6,
-              }}
-            >
-              <div>
-                <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--text-accent)" }}>
-                  {d.label}
-                </a>
-                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Added {d.added_at.slice(0, 10)}</p>
-              </div>
-              <form action={boundDelete}>
-                <SmallButton type="submit" variant="danger">Delete</SmallButton>
-              </form>
-            </div>
-          );
-        })
-      )}
-    </div>
+    </form>
   );
 }

@@ -95,6 +95,14 @@ export interface Reminder {
   created_at: string;
 }
 
+export interface BiometricsHistoryEntry {
+  id: string;
+  patient_id: string;
+  weight_kg: number | null;
+  height_cm: number | null;
+  effective_date: string;
+}
+
 export interface PatientDocument {
   id: string;
   patient_id: string;

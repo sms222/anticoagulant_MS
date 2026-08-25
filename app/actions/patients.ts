@@ -53,5 +53,16 @@ export async function createPatient(formData: FormData) {
     });
   }
 
+  const weightKg = formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null;
+  const heightCm = formData.get("height_cm") ? Number(formData.get("height_cm")) : null;
+  if (weightKg !== null || heightCm !== null) {
+    await supabase.from("biometrics_history").insert({
+      patient_id: data.id,
+      weight_kg: weightKg,
+      height_cm: heightCm,
+      effective_date: new Date().toISOString().slice(0, 10),
+    });
+  }
+
   redirect(`/patients/${data.id}`);
 }

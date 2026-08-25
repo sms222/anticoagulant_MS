@@ -38,6 +38,47 @@ export async function updateTargetInr(patientId: string, formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
+// Biometrics (weight/height) — tracked over time, same pattern as target INR
+// ---------------------------------------------------------------------------
+export async function updateBiometrics(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const weightKg = formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null;
+  const heightCm = formData.get("height_cm") ? Number(formData.get("height_cm")) : null;
+  const effectiveDate = (formData.get("effective_date") as string) || new Date().toISOString().slice(0, 10);
+
+  if (weightKg === null && heightCm === null) throw new Error("Enter a weight or height");
+
+  const { error: historyError } = await supabase.from("biometrics_history").insert({
+    patient_id: patientId,
+    weight_kg: weightKg,
+    height_cm: heightCm,
+    effective_date: effectiveDate,
+  });
+  if (historyError) throw new Error("Could not record biometrics: " + historyError.message);
+
+  const update: Record<string, number> = {};
+  if (weightKg !== null) update.weight_kg = weightKg;
+  if (heightCm !== null) update.height_cm = heightCm;
+  const { error: patientError } = await supabase.from("patients").update(update).eq("id", patientId);
+  if (patientError) throw new Error("Could not update patient's current biometrics: " + patientError.message);
+
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
+// Patient notes — general free text (links can just be pasted in as text)
+// ---------------------------------------------------------------------------
+export async function updatePatientNotes(patientId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("patients")
+    .update({ notes: (formData.get("notes") as string) || null })
+    .eq("id", patientId);
+  if (error) throw new Error("Could not save notes: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+// ---------------------------------------------------------------------------
 // Patient details — everything editable except name / MRN / DOB (backend-only,
 // identity fields; changing those goes through whoever administers the DB)
 // ---------------------------------------------------------------------------
@@ -49,12 +90,9 @@ export async function updatePatientDetails(patientId: string, formData: FormData
     .update({
       phone: (formData.get("phone") as string) || null,
       address: (formData.get("address") as string) || null,
-      weight_kg: formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null,
-      height_cm: formData.get("height_cm") ? Number(formData.get("height_cm")) : null,
       indication,
       indication_detail: indication === "other" ? (formData.get("indication_detail") as string) || null : null,
       anticoagulant_type: formData.get("anticoagulant_type") as string,
-      risk_class: (formData.get("risk_class") as string) || null,
       intake_date: (formData.get("intake_date") as string) || undefined,
     })
     .eq("id", patientId);
@@ -236,6 +274,24 @@ export async function addMedication(patientId: string, formData: FormData) {
   revalidatePath(path(patientId));
 }
 
+export async function updateMedication(patientId: string, medicationId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("medications")
+    .update({
+      drug_name: formData.get("drug_name") as string,
+      dose: formData.get("dose") as string,
+      frequency: formData.get("frequency") as string,
+      route: (formData.get("route") as string) || null,
+      indication: (formData.get("indication") as string) || null,
+      start_date: formData.get("start_date") as string,
+      notes: (formData.get("notes") as string) || null,
+    })
+    .eq("id", medicationId);
+  if (error) throw new Error("Could not update medication: " + error.message);
+  revalidatePath(path(patientId));
+}
+
 export async function discontinueMedication(patientId: string, medicationId: string) {
   const supabase = createServerClient();
   const { error } = await supabase
@@ -279,6 +335,24 @@ export async function deleteClinicalEvent(patientId: string, eventId: string) {
   revalidatePath(path(patientId));
 }
 
+export async function updateClinicalEvent(patientId: string, eventId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const eventType = formData.get("event_type") as string;
+  const { error } = await supabase
+    .from("clinical_events")
+    .update({
+      event_type: eventType,
+      bleeding_severity: eventType === "bleeding" ? (formData.get("bleeding_severity") as string) || null : null,
+      event_date: formData.get("event_date") as string,
+      description: formData.get("description") as string,
+      inr_at_event: formData.get("inr_at_event") ? Number(formData.get("inr_at_event")) : null,
+      outcome: (formData.get("outcome") as string) || null,
+    })
+    .eq("id", eventId);
+  if (error) throw new Error("Could not update event: " + error.message);
+  revalidatePath(path(patientId));
+}
+
 // ---------------------------------------------------------------------------
 // Reminders — freeform per-patient task list
 // ---------------------------------------------------------------------------
@@ -310,6 +384,19 @@ export async function deleteReminder(patientId: string, reminderId: string) {
   const supabase = createServerClient();
   const { error } = await supabase.from("reminders").delete().eq("id", reminderId);
   if (error) throw new Error("Could not delete reminder: " + error.message);
+  revalidatePath(path(patientId));
+}
+
+export async function updateReminder(patientId: string, reminderId: string, formData: FormData) {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("reminders")
+    .update({
+      task: formData.get("task") as string,
+      due_date: (formData.get("due_date") as string) || null,
+    })
+    .eq("id", reminderId);
+  if (error) throw new Error("Could not update reminder: " + error.message);
   revalidatePath(path(patientId));
 }
 

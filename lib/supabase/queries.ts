@@ -9,6 +9,7 @@ import type {
   Reminder,
   PatientDocument,
   TargetInrHistoryEntry,
+  BiometricsHistoryEntry,
   FollowUpStatus,
 } from "@/lib/types";
 
@@ -139,6 +140,17 @@ export async function getTargetInrHistory(patientId: string): Promise<TargetInrH
     .order("effective_date", { ascending: true });
   if (error) return [];
   return data as TargetInrHistoryEntry[];
+}
+
+export async function getBiometricsHistory(patientId: string): Promise<BiometricsHistoryEntry[]> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("biometrics_history")
+    .select("*")
+    .eq("patient_id", patientId)
+    .order("effective_date", { ascending: true });
+  if (error) return [];
+  return data as BiometricsHistoryEntry[];
 }
 
 export async function getAllPatients(): Promise<Patient[]> {

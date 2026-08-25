@@ -1,5 +1,5 @@
 # ACMS — Anticoagulation Management System
-## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13)
+## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13, §14)
 
 For: UKM / Hospital Canselor Tuanku Muhriz anticoagulation clinic pharmacy team
 Owner: Shamin Mohd Saffian
@@ -326,6 +326,64 @@ combined chart with a shared time axis is wanted, that's real charting-library w
 **13.6 Delivery note** — Same as before: applied directly to the live Supabase project,
 verified with real calculator runs against Siti Nur Aisyah's actual data (not just
 typecheck), packaged as a zip, not pushed to GitHub.
+
+---
+
+## 14. Fourth session — 25 August 2026: full edit rollout, Documents dropped, layout widened
+
+**14.1 Drugs / Events / Reminders — edit added.** All three previously only supported
+add/delete (plus discontinue for meds, toggle-done for reminders). Each row now has an
+Edit button that expands the same field set used for adding, pre-filled. New actions:
+`updateMedication`, `updateClinicalEvent`, `updateReminder`.
+
+**14.2 Documents dropped.** Removed the tab, the DB table (`patient_documents`) is left
+in place with its data untouched but nothing in the app reads or writes to it anymore —
+not dropped outright in case there's something in it already. In its place: a new
+top-level **Notes** tab, patient-level free text (`patients.notes` — was already a
+column, used at intake, just never surfaced in the chart itself), same lock-after-save
+pattern as Contacts. Links get pasted in as plain text; there's still no real file
+storage (see §11.2's original reasoning — governance sign-off, not a technical
+shortcut). This sits at the top level (own tab), not nested under Dosing, per the
+request to "push notes to the upper row."
+
+**14.3 Risk class removed entirely.** Sidebar chip gone, edit form field gone. The
+`risk_class` column stays in the DB (harmless, unused) in case it's wanted back later —
+nothing was dropped structurally, just unhooked from the UI.
+
+**14.4 Weight/height tracked like INR.** New `biometrics_history` table, same pattern
+as `target_inr_history`: `patients.weight_kg`/`height_cm` stay as the current values
+(used directly by anything that needs them, e.g. future Cockcroft-Gault work),
+`biometrics_history` is the change log. New `BiometricsPanel` in Dosing → Metrics
+("Update at this visit") for both warfarin and NOAC patients — weight/height matter for
+renal function either way. Existing patients backfilled with one entry each, dated to
+intake, so nothing showed up empty.
+
+**14.5 Labs — filterable and orderable.** Added a Test dropdown (built from whatever
+test names actually exist in this patient's data, not a hardcoded list — defaults to
+"INR" when present) and an Oldest first/Newest first order toggle. Previously it was
+always all-tests, newest-first, no way to change either.
+
+**14.6 Layout widened for desktop/tablet landscape.** Per the request — this is a clinic
+tool used on desktop and tablet landscape, not mobile — removed the 900px page cap
+(now 1440px) on the home page and patient chart, widened the intake form (640→760px),
+widened the patient chart's sidebar (180→260px) and content padding, and bumped metric
+card grid minimums so more columns show per row on a wide screen. No responsive/mobile
+work was done or attempted — explicitly out of scope per the request.
+
+**14.7 Not done from this round**
+- Audit trail — explicitly held back pending confirmation on scope (which tables/edits
+  to log), detail level (simple who+when vs full old→new diffs per field), and who can
+  see it (existing `audit_log` table's RLS already restricts it to a `developer` role —
+  confirm whether that's still right). The table and RLS policy already exist and were
+  never used; nothing here blocks building it once scoped.
+- `patient_documents` table not dropped, just unused — a future call on whether to
+  actually delete it or leave it as dead weight.
+
+**14.8 Delivery note** — Same as every round: applied directly to the live Supabase
+project (migration for `biometrics_history`), verified against real demo-patient data
+via direct SQL queries (not just typecheck — confirmed the backfill produced correct
+rows, confirmed no existing data was disturbed), full `next build` passed clean,
+packaged as a zip, not pushed to GitHub (no write access this session).
 
 ## 9. Who to ask
 

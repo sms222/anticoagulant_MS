@@ -47,7 +47,7 @@ export default async function Home() {
     .sort((a, b) => (a.f.next_appt_date! < b.f.next_appt_date! ? -1 : 1));
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: 1440, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 4 }}>Clinic overview</h1>
       <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>{today}</p>
 

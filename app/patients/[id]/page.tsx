@@ -6,8 +6,8 @@ import {
   getClinicalEvents,
   getMedications,
   getReminders,
-  getPatientDocuments,
   getTargetInrHistory,
+  getBiometricsHistory,
 } from "@/lib/supabase/queries";
 import { PatientChart } from "@/components/patient/PatientChart";
 import { notFound } from "next/navigation";
@@ -19,21 +19,30 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
   const patient = await getPatient(id);
   if (!patient) notFound();
 
-  const [encounters, inrLabs, creatinineLabs, hasBledResults, clinicalEvents, medications, reminders, documents, targetInrHistory] =
-    await Promise.all([
-      getEncounters(patient.id),
-      getLabResults(patient.id, "INR"),
-      getLabResults(patient.id, "Serum creatinine"),
-      getScoringResults(patient.id, "HAS-BLED"),
-      getClinicalEvents(patient.id),
-      getMedications(patient.id),
-      getReminders(patient.id),
-      getPatientDocuments(patient.id),
-      getTargetInrHistory(patient.id),
-    ]);
+  const [
+    encounters,
+    inrLabs,
+    creatinineLabs,
+    hasBledResults,
+    clinicalEvents,
+    medications,
+    reminders,
+    targetInrHistory,
+    biometricsHistory,
+  ] = await Promise.all([
+    getEncounters(patient.id),
+    getLabResults(patient.id, "INR"),
+    getLabResults(patient.id, "Serum creatinine"),
+    getScoringResults(patient.id, "HAS-BLED"),
+    getClinicalEvents(patient.id),
+    getMedications(patient.id),
+    getReminders(patient.id),
+    getTargetInrHistory(patient.id),
+    getBiometricsHistory(patient.id),
+  ]);
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 900, margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: 1440, margin: "0 auto" }}>
       <PatientChart
         patient={patient}
         encounters={encounters}
@@ -43,8 +52,8 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
         clinicalEvents={clinicalEvents}
         medications={medications}
         reminders={reminders}
-        documents={documents}
         targetInrHistory={targetInrHistory}
+        biometricsHistory={biometricsHistory}
       />
     </main>
   );
