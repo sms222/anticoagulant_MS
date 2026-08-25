@@ -152,6 +152,7 @@ export async function addEncounter(patientId: string, formData: FormData) {
     room: (formData.get("room") as string) || null,
     next_appt_date: (formData.get("next_appt_date") as string) || null,
     notes: (formData.get("notes") as string) || null,
+    seen_by: (formData.get("seen_by") as string) || null,
   });
   if (error) throw new Error("Could not add visit: " + error.message);
   revalidatePath(path(patientId));
@@ -167,6 +168,7 @@ export async function updateEncounter(patientId: string, encounterId: string, fo
       room: (formData.get("room") as string) || null,
       next_appt_date: (formData.get("next_appt_date") as string) || null,
       notes: (formData.get("notes") as string) || null,
+      seen_by: (formData.get("seen_by") as string) || null,
     })
     .eq("id", encounterId);
   if (error) throw new Error("Could not update visit: " + error.message);

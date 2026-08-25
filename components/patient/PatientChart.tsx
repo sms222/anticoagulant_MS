@@ -12,6 +12,7 @@ import type {
   Reminder,
   TargetInrHistoryEntry,
   BiometricsHistoryEntry,
+  Pharmacist,
 } from "@/lib/types";
 import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import {
@@ -67,6 +68,7 @@ export function PatientChart({
   reminders,
   targetInrHistory,
   biometricsHistory,
+  pharmacists,
 }: {
   patient: Patient;
   encounters: Encounter[];
@@ -78,6 +80,7 @@ export function PatientChart({
   reminders: Reminder[];
   targetInrHistory: TargetInrHistoryEntry[];
   biometricsHistory: BiometricsHistoryEntry[];
+  pharmacists: Pharmacist[];
 }) {
   const [topTab, setTopTab] = useState<TopTab>("dosing");
   const [subTab, setSubTab] = useState<SubTab>("metrics");
@@ -182,6 +185,7 @@ export function PatientChart({
                   inrLabs={inrLabs}
                   targetLow={patient.target_inr_low}
                   targetHigh={patient.target_inr_high}
+                  pharmacists={pharmacists}
                 />
               )}
               {subTab === "notes" && <NotesView encounters={encounters} />}
@@ -743,12 +747,14 @@ function HistoryView({
   inrLabs,
   targetLow,
   targetHigh,
+  pharmacists,
 }: {
   patientId: string;
   encounters: Encounter[];
   inrLabs: LabResult[];
   targetLow: number | null;
   targetHigh: number | null;
+  pharmacists: Pharmacist[];
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -790,7 +796,7 @@ function HistoryView({
           }}
           style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}
         >
-          <EncounterFields />
+          <EncounterFields pharmacists={pharmacists} />
           <SmallButton type="submit">Save visit</SmallButton>
         </form>
       )}
@@ -799,12 +805,13 @@ function HistoryView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
-              <th style={thStyle("16%")}>Date</th>
-              <th style={thStyle("10%")}>INR</th>
-              <th style={thStyle("12%")}>Dose</th>
-              <th style={thStyle("14%")}>Room</th>
-              <th style={thStyle("16%")}>In range</th>
-              <th style={thStyle("20%")}>Comments</th>
+              <th style={thStyle("13%")}>Date</th>
+              <th style={thStyle("8%")}>INR</th>
+              <th style={thStyle("10%")}>Dose</th>
+              <th style={thStyle("12%")}>Room</th>
+              <th style={thStyle("14%")}>Seen by</th>
+              <th style={thStyle("13%")}>In range</th>
+              <th style={thStyle("18%")}>Comments</th>
               <th style={thStyle("12%")}></th>
             </tr>
           </thead>
@@ -816,14 +823,14 @@ function HistoryView({
               if (isEditing) {
                 return (
                   <tr key={e.id} style={{ borderBottom: i < encounters.length - 1 ? "0.5px solid var(--border)" : "none" }}>
-                    <td colSpan={7} style={{ padding: 10 }}>
+                    <td colSpan={8} style={{ padding: 10 }}>
                       <form
                         action={async (fd) => {
                           await boundUpdate(fd);
                           setEditingId(null);
                         }}
                       >
-                        <EncounterFields encounter={e} />
+                        <EncounterFields encounter={e} pharmacists={pharmacists} />
                         <div style={{ display: "flex", gap: 8 }}>
                           <SmallButton type="submit">Save</SmallButton>
                           <SmallButton type="button" onClick={() => setEditingId(null)}>
@@ -841,6 +848,7 @@ function HistoryView({
                   <td style={tdStyle}>{bar ? bar.value : "\u2014"}</td>
                   <td style={tdStyle}>{e.current_dose_mg ? `${e.current_dose_mg}mg` : "\u2014"}</td>
                   <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.room ?? "\u2014"}</td>
+                  <td style={{ ...tdStyle, color: "var(--text-secondary)" }}>{e.seen_by_name ?? "\u2014"}</td>
                   <td style={tdStyle}>
                     {bar ? (
                       <div style={{ background: "var(--surface-1)", borderRadius: 3, height: 8, width: "100%", overflow: "hidden" }}>
@@ -866,7 +874,7 @@ function HistoryView({
   );
 }
 
-function EncounterFields({ encounter }: { encounter?: Encounter }) {
+function EncounterFields({ encounter, pharmacists }: { encounter?: Encounter; pharmacists: Pharmacist[] }) {
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
       <FieldWrap width={140}>
@@ -880,6 +888,17 @@ function EncounterFields({ encounter }: { encounter?: Encounter }) {
       <FieldWrap width={130}>
         <label style={labelStyle}>Room</label>
         <input name="room" defaultValue={encounter?.room ?? ""} style={inputStyle} />
+      </FieldWrap>
+      <FieldWrap width={150}>
+        <label style={labelStyle}>Seen by</label>
+        <select name="seen_by" defaultValue={encounter?.seen_by ?? ""} style={inputStyle}>
+          <option value="">\u2014</option>
+          {pharmacists.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.full_name}
+            </option>
+          ))}
+        </select>
       </FieldWrap>
       <FieldWrap width={150}>
         <label style={labelStyle}>Next appointment</label>

@@ -39,6 +39,38 @@ export interface Encounter {
   audio_transcript: string | null;
   ai_pipeline_used: boolean;
   room: string | null;
+  seen_by: string | null;
+  seen_by_name?: string | null;
+}
+
+export interface Pharmacist {
+  id: string;
+  full_name: string;
+}
+
+export type AppointmentType = "routine_followup" | "telephone_followup" | "urgent_walkin";
+export type AppointmentStatus = "scheduled" | "checked_in" | "with_pharmacist" | "completed" | "no_show" | "cancelled";
+
+export const APPOINTMENT_TYPE_LABELS: Record<AppointmentType, string> = {
+  routine_followup: "Routine follow-up",
+  telephone_followup: "Telephone follow-up",
+  urgent_walkin: "Urgent (walk-in)",
+};
+
+export interface TodaysAppointment {
+  id: string;
+  patient_id: string;
+  scheduled_time: string;
+  room: string | null;
+  status: AppointmentStatus;
+  appointment_type: AppointmentType;
+  pharmacist_id: string | null;
+  pharmacist_name: string | null;
+  patient_name: string;
+  anticoagulant_type: string;
+  target_inr_low: number | null;
+  target_inr_high: number | null;
+  last_inr: number | null;
 }
 
 export interface LabResult {
@@ -124,6 +156,7 @@ export interface FollowUpStatus {
   patient_id: string;
   next_appt_date: string | null;
   last_encounter_date: string;
+  patient_name?: string;
 }
 
 export const INDICATION_OPTIONS: { value: string; label: string }[] = [

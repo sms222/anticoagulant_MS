@@ -1,5 +1,5 @@
 # ACMS — Anticoagulation Management System
-## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13, §14)
+## Handover document — 24 August 2026 (updated 25 August 2026 — see §11, §12, §13, §14, §15)
 
 For: UKM / Hospital Canselor Tuanku Muhriz anticoagulation clinic pharmacy team
 Owner: Shamin Mohd Saffian
@@ -82,9 +82,8 @@ read/write. Not yet scoped per-pharmacist; that's a future refinement, not urgen
 
 1. ~~`schema.sql` in the repo is stale.~~ **Fixed 25 Aug 2026** — `schema.sql` now
    matches the live database, including the four new tables from §11.
-2. **Appointment creation has no UI.** The queue on the home page only shows rows already
-   in `appointments` — right now that's two rows I inserted by hand as demo data. No
-   scheduling or check-in workflow exists.
+2. ~~Appointment creation has no UI.~~ **Fixed 25 Aug 2026** — full scheduling +
+   check-in workflow built. See §15.
 3. ~~Contacts / Drugs / Events / Reminders / Documents tabs are empty shells.~~ **Fixed 25
    Aug 2026** — all five are wired up. See §11.
 4. **Groq AI pipeline (audio scribe + lab screenshot OCR) is not built.** Blocked on
@@ -384,6 +383,111 @@ project (migration for `biometrics_history`), verified against real demo-patient
 via direct SQL queries (not just typecheck — confirmed the backfill produced correct
 rows, confirmed no existing data was disturbed), full `next build` passed clean,
 packaged as a zip, not pushed to GitHub (no write access this session).
+
+---
+
+## 15. Fifth session — 25 August 2026: dashboard rebuild + real check-in workflow
+
+Requester shared a mockup for the home page and asked for three things: track which
+pharmacist saw each patient, redesign the dashboard to match the mockup, and show room
+assignment on the queue. Confirmed scope on three ambiguous points before building
+(appointment type categories, what the two placeholder alert types should mean, and
+whether to build the full check-in state machine) — answers below.
+
+**15.1 Seen-by pharmacist.** New `encounters.seen_by` (FK to `profiles`). Shows as a
+"Seen by" column in Dosing → History, and gets set automatically when a dashboard
+appointment is marked completed (see 15.4). Also addable/editable directly from the
+existing "+ Add visit" / row-edit forms in the patient chart.
+
+**15.2 Room + pharmacist on the queue.** `appointments.pharmacist_id` (new FK to
+`profiles`) alongside the `room` column that already existed. When an appointment is
+`with_pharmacist`, the dashboard row shows "Meeting {pharmacist} in {room}" directly
+under the patient's name.
+
+**15.3 Appointment type.** New `appointment_type` enum
+(`routine_followup` / `telephone_followup` / `urgent_walkin` — the requester's own
+categories, not the mockup's original four) on `appointments`, set at scheduling time.
+Drives the dashboard's pie chart (plain CSS `conic-gradient`, no charting library —
+same reasoning as the plain-SVG sparklines elsewhere: avoids the SSR/hydration issue
+already documented in gap 5, §5).
+
+**15.4 Full check-in workflow — the state machine requested.**
+`appointment_status` enum grew three new values: `scheduled`, `checked_in`,
+`with_pharmacist` (Postgres enums can only grow, not shrink in place — the old
+`waiting`/`in_progress` values still technically exist but the app no longer writes
+them; existing demo rows were migrated onto the new values). Flow:
+`scheduled` → **Check In** → `checked_in` → **Start Visit** (assign room + pharmacist
+inline) → `with_pharmacist` → **Mark Completed** → `completed` (or **No-show** at the
+first step). New actions in `app/actions/appointments.ts`:
+`checkInAppointment`, `startVisit`, `completeAppointment`, `markNoShow`,
+`createAppointment`.
+
+**Mark Completed does real work, not just a status flip** — it also creates (or
+updates, if one's already linked) a minimal `encounters` row: today's date, room,
+seen_by. This is what makes 15.1 actually populate without the pharmacist doing double
+entry. The pharmacist still goes into the patient chart afterward to fill in
+dose/notes/labs — this only closes the loop between "today's queue" and "the visit
+exists in the chart."
+
+**15.5 Appointment creation UI — closes a gap that's been open since session 1.**
+New `/appointments/new` page (patient, date/time, room, pharmacist, type). This was
+gap 2 in §8/§5 ("Appointment creation has no UI") since the very first handover;
+resolved as a side effect of building the check-in workflow, not a separate ask.
+
+**15.6 Dashboard rebuild.** New `components/home/Dashboard.tsx` (client component,
+same one-big-file pattern as `PatientChart.tsx`), `app/page.tsx` now just fetches data
+and hands it off. Sections, matching the mockup's layout: Today's Overview (stat
+counts), High Priority Alerts, Appointments Status (pie chart), Quick Search, Mini
+Calendar, Today's Appointments table (the queue + check-in actions), Upcoming
+Appointments. Left nav has only two real destinations — Dashboard and a new
+`/patients` list page — Reports/Messages/Settings from the mockup were **not** built
+as fake links; see 15.8.
+
+High Priority Alerts, per the requester's answer:
+- **INR > 4.0** — real, computed from each active patient's latest INR reading.
+- **Defaulted follow-up** — real, reusing the `patient_followup_status` view from
+  session 2 (folded into this panel rather than dropped, since it already existed and
+  the mockup didn't call for removing it).
+- **Overdue dose adjustments** / **New referrals pending review** — explicit
+  placeholders, greyed out, labeled "not tracked yet." Nothing invented here; these
+  wait on the requester deciding whether they're wanted at all, per their answer.
+
+Theme: red accent throughout (`--text-accent`/`--fill-accent`, already established in
+session 2), light/bright background, matching the request directly — no dark mode
+detour.
+
+**15.7 New query functions** (`lib/supabase/queries.ts`): `getTodaysAppointments`
+(rewritten — now returns a flat, fully-typed `TodaysAppointment[]` instead of `any[]`,
+joins patient + pharmacist + latest INR), `getHighInrAlerts`, `getPharmacists`,
+`getCurrentPharmacist` (reads the logged-in Supabase Auth session). New DB view
+`patient_latest_inr` (same `distinct on` pattern as `patient_followup_status`) backs
+both the alerts panel and the queue's "Last INR" column.
+
+**15.8 Not done from this round**
+- Reports, Messages, Settings from the mockup's left nav — not built. Adding nav items
+  that go nowhere felt worse than leaving them out; flag if any of the three are
+  actually wanted and what they should do.
+- No room master list — `room` is still free text on both `appointments` and
+  `encounters`, same as before. If double-booking a room becomes a real problem, that's
+  worth a dedicated `rooms` table with actual scheduling conflict checks — not
+  attempted here.
+- Mini calendar is decorative — shows the current month with today highlighted, doesn't
+  filter the queue by date. Wiring it up (pick a date → see that day's appointments) is
+  a real feature, not a follow-on of what was asked.
+- "Log INR Result" quick action in the left nav routes to `/patients` (search first,
+  then use that patient's Labs tab) rather than a dedicated flow — there's no sensible
+  "log a result" entry point without a patient already selected.
+
+**15.9 Delivery note** — Two-step migration (enum values, then columns/data
+migration, since Postgres won't let you use a newly-added enum value in the same
+transaction that added it on all versions — split it to be safe rather than assume the
+project's PG version). **Replayed the exact `completeAppointment` server action logic
+by hand in SQL** against the live demo patient (create test appointment → check in →
+start visit → create encounter with seen_by → link encounter_id → mark completed →
+confirm the seen-by join resolves to a real name) before trusting the code path, then
+deleted the test rows and confirmed row counts matched the pre-session baseline exactly
+(2 appointments, 5 encounters). Full `next build` clean. Packaged as a zip, not pushed
+to GitHub.
 
 ## 9. Who to ask
 

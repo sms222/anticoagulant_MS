@@ -8,6 +8,7 @@ import {
   getReminders,
   getTargetInrHistory,
   getBiometricsHistory,
+  getPharmacists,
 } from "@/lib/supabase/queries";
 import { PatientChart } from "@/components/patient/PatientChart";
 import { notFound } from "next/navigation";
@@ -29,6 +30,7 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
     reminders,
     targetInrHistory,
     biometricsHistory,
+    pharmacists,
   ] = await Promise.all([
     getEncounters(patient.id),
     getLabResults(patient.id, "INR"),
@@ -39,6 +41,7 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
     getReminders(patient.id),
     getTargetInrHistory(patient.id),
     getBiometricsHistory(patient.id),
+    getPharmacists(),
   ]);
 
   return (
@@ -54,6 +57,7 @@ export default async function PatientPage({ params }: { params: Promise<{ id: st
         reminders={reminders}
         targetInrHistory={targetInrHistory}
         biometricsHistory={biometricsHistory}
+        pharmacists={pharmacists}
       />
     </main>
   );
