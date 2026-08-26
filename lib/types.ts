@@ -87,6 +87,7 @@ export interface LabResult {
   unit: string | null;
   test_date: string;
   source: "manual" | "ems_screenshot_ai" | "ems_screenshot_manual";
+  notes: string | null;
 }
 
 export interface ScoringResult {

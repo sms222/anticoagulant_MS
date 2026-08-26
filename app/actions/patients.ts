@@ -21,6 +21,7 @@ export async function createPatient(formData: FormData) {
   const { data, error } = await supabase
     .from("patients")
     .insert({
+      mrn: (formData.get("mrn") as string) || null,
       name: formData.get("name") as string,
       date_of_birth: (formData.get("date_of_birth") as string) || null,
       sex: (formData.get("sex") as string) || null,

@@ -253,6 +253,10 @@ function PatientDetailsSidebar({
           }}
         >
           <FieldWrap>
+            <label style={labelStyle}>MRN</label>
+            <input name="mrn" defaultValue={patient.mrn ?? ""} style={inputStyle} />
+          </FieldWrap>
+          <FieldWrap>
             <label style={labelStyle}>Phone</label>
             <input name="phone" defaultValue={patient.phone ?? ""} style={inputStyle} />
           </FieldWrap>
@@ -313,6 +317,7 @@ function PatientDetailsSidebar({
           Edit
         </button>
       </div>
+      <SidebarField label="MRN" value={patient.mrn ?? "—"} />
       <SidebarField label="Phone" value={patient.phone ?? "—"} />
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <SidebarField label="Age" value={age?.toString() ?? "—"} />

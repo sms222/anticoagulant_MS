@@ -193,6 +193,7 @@ export async function updatePatientDetails(patientId: string, formData: FormData
   const { error } = await supabase
     .from("patients")
     .update({
+      mrn: (formData.get("mrn") as string) || null,
       phone: (formData.get("phone") as string) || null,
       address: (formData.get("address") as string) || null,
       indication,
