@@ -2,6 +2,7 @@
 
 import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { todayKL } from "@/lib/datetime";
 
 function path(patientId: string) {
   return `/patients/${patientId}`;
@@ -72,7 +73,7 @@ async function recalcHasBled(supabase: ReturnType<typeof createServerClient>, pa
   await supabase.from("scoring_tool_results").insert({
     patient_id: patientId,
     tool_id: toolDef.id,
-    score_date: new Date().toISOString().slice(0, 10),
+    score_date: todayKL(),
     score_value: result.score,
     components: result.components,
   });
@@ -105,7 +106,7 @@ async function recalcCha2ds2Vasc(supabase: ReturnType<typeof createServerClient>
   await supabase.from("scoring_tool_results").insert({
     patient_id: patientId,
     tool_id: toolDef.id,
-    score_date: new Date().toISOString().slice(0, 10),
+    score_date: todayKL(),
     score_value: result.score,
     components: result.components,
   });
@@ -121,7 +122,7 @@ export async function updateTargetInr(patientId: string, formData: FormData) {
   if (!targetInr || Number.isNaN(targetInr)) throw new Error("Enter a target INR value");
   const targetInrLow = Math.round((targetInr - 0.5) * 10) / 10;
   const targetInrHigh = Math.round((targetInr + 0.5) * 10) / 10;
-  const effectiveDate = (formData.get("effective_date") as string) || new Date().toISOString().slice(0, 10);
+  const effectiveDate = (formData.get("effective_date") as string) || todayKL();
 
   const { error: historyError } = await supabase.from("target_inr_history").insert({
     patient_id: patientId,
@@ -149,7 +150,7 @@ export async function updateBiometrics(patientId: string, formData: FormData) {
   const supabase = createServerClient();
   const weightKg = formData.get("weight_kg") ? Number(formData.get("weight_kg")) : null;
   const heightCm = formData.get("height_cm") ? Number(formData.get("height_cm")) : null;
-  const effectiveDate = (formData.get("effective_date") as string) || new Date().toISOString().slice(0, 10);
+  const effectiveDate = (formData.get("effective_date") as string) || todayKL();
 
   if (weightKg === null && heightCm === null) throw new Error("Enter a weight or height");
 
@@ -217,7 +218,7 @@ export async function addLabResult(patientId: string, formData: FormData) {
     test_name: testName,
     result_value: Number(formData.get("result_value")),
     unit: (formData.get("unit") as string) || null,
-    test_date: (formData.get("test_date") as string) || new Date().toISOString().slice(0, 10),
+    test_date: (formData.get("test_date") as string) || todayKL(),
     source: "manual",
   });
   if (error) throw new Error("Could not add lab result: " + error.message);
@@ -259,7 +260,7 @@ export async function addEncounter(patientId: string, formData: FormData) {
   const supabase = createServerClient();
   const { error } = await supabase.from("encounters").insert({
     patient_id: patientId,
-    encounter_date: (formData.get("encounter_date") as string) || new Date().toISOString().slice(0, 10),
+    encounter_date: (formData.get("encounter_date") as string) || todayKL(),
     current_dose_mg: formData.get("current_dose_mg") ? Number(formData.get("current_dose_mg")) : null,
     room: (formData.get("room") as string) || null,
     next_appt_date: (formData.get("next_appt_date") as string) || null,
@@ -346,7 +347,7 @@ export async function addHasBledAssessment(patientId: string) {
   const { error } = await supabase.from("scoring_tool_results").insert({
     patient_id: patientId,
     tool_id: toolDef.id,
-    score_date: new Date().toISOString().slice(0, 10),
+    score_date: todayKL(),
     score_value: result.score,
     components: result.components,
   });
@@ -377,7 +378,7 @@ export async function addCha2ds2VascAssessment(patientId: string) {
   const { error } = await supabase.from("scoring_tool_results").insert({
     patient_id: patientId,
     tool_id: toolDef.id,
-    score_date: new Date().toISOString().slice(0, 10),
+    score_date: todayKL(),
     score_value: result.score,
     components: result.components,
   });
@@ -434,7 +435,7 @@ export async function addMedication(patientId: string, formData: FormData) {
     frequency: formData.get("frequency") as string,
     route: (formData.get("route") as string) || null,
     indication: (formData.get("indication") as string) || null,
-    start_date: (formData.get("start_date") as string) || new Date().toISOString().slice(0, 10),
+    start_date: (formData.get("start_date") as string) || todayKL(),
     notes: (formData.get("notes") as string) || null,
   });
   if (error) throw new Error("Could not add medication: " + error.message);
@@ -465,7 +466,7 @@ export async function discontinueMedication(patientId: string, medicationId: str
   const supabase = createServerClient();
   const { error } = await supabase
     .from("medications")
-    .update({ active: false, stop_date: new Date().toISOString().slice(0, 10) })
+    .update({ active: false, stop_date: todayKL() })
     .eq("id", medicationId);
   if (error) throw new Error("Could not discontinue medication: " + error.message);
   await recalcHasBled(supabase, patientId);
@@ -490,7 +491,7 @@ export async function addClinicalEvent(patientId: string, formData: FormData) {
     patient_id: patientId,
     event_type: eventType,
     bleeding_severity: eventType === "bleeding" ? (formData.get("bleeding_severity") as string) || null : null,
-    event_date: (formData.get("event_date") as string) || new Date().toISOString().slice(0, 10),
+    event_date: (formData.get("event_date") as string) || todayKL(),
     description: formData.get("description") as string,
     inr_at_event: formData.get("inr_at_event") ? Number(formData.get("inr_at_event")) : null,
     outcome: (formData.get("outcome") as string) || null,

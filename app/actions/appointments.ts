@@ -4,6 +4,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { autoStopStaleVisits } from "@/lib/supabase/visit-timer";
+import { todayKL } from "@/lib/datetime";
 
 // ---------------------------------------------------------------------------
 // Scheduling — creates a new appointment on the queue
@@ -97,7 +98,7 @@ export async function completeAppointment(appointmentId: string) {
     .single();
   if (fetchError || !appt) throw new Error("Could not find appointment: " + fetchError?.message);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKL();
 
   if (appt.encounter_id) {
     await supabase

@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { TodaysAppointment, Patient, FollowUpStatus, Pharmacist, AppointmentType } from "@/lib/types";
 import { APPOINTMENT_TYPE_LABELS } from "@/lib/types";
 import { formatDateDisplay } from "@/lib/format";
+import { todayKL, formatKLDateTime } from "@/lib/datetime";
 import { checkInAppointment, startVisit, completeAppointment, markNoShow } from "@/app/actions/appointments";
 
 const statusMeta: Record<string, { bg: string; text: string; label: string }> = {
@@ -48,7 +49,7 @@ export function Dashboard({
   currentPharmacist: Pharmacist | null;
   selectedDate: string;
 }) {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayKL();
   const defaulted = followUps.filter((f) => f.next_appt_date && f.next_appt_date < todayIso);
 
   return (
@@ -121,7 +122,7 @@ function LeftNav() {
 }
 
 function HeaderBar({ currentPharmacist }: { currentPharmacist: Pharmacist | null }) {
-  const today = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const today = formatKLDateTime(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
       <div>
@@ -344,7 +345,7 @@ function MiniCalendar({ selectedDate, todayIso }: { selectedDate: string; todayI
   const month = viewMonth - 1;
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthLabel = new Date(year, month, 1).toLocaleDateString("en-MY", { month: "long", year: "numeric" });
+  const monthLabel = formatKLDateTime(new Date(year, month, 1), { month: "long", year: "numeric" });
   const cells: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
 
   function isoFor(day: number) {

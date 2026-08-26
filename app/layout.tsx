@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getCurrentPharmacist } from "@/lib/supabase/queries";
 import { BackToQueueLink } from "@/components/layout/BackToQueueLink";
+import { formatKLDateTime } from "@/lib/datetime";
 
 export const metadata: Metadata = {
   title: "UKM Anticoagulant Management System",
@@ -49,7 +50,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Link>
           <BackToQueueLink />
           <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
-            {new Date().toLocaleString("en-MY", {
+            {formatKLDateTime(new Date(), {
               weekday: "short",
               day: "numeric",
               month: "short",
@@ -96,11 +97,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         >
           {currentPharmacist && (
             <span>
-              Logged in as {currentPharmacist.full_name} (User ID: {currentPharmacist.id})
+              Logged in as {currentPharmacist.full_name} (User ID: {currentPharmacist.id}) &middot;{" "}
+              <Link href="/account/change-password" style={{ color: "var(--text-muted)" }}>
+                Change password
+              </Link>
             </span>
           )}
           <span>
-            &copy; {new Date().getFullYear()} Shamin Mohd Saffian. All rights reserved. &middot; Support:{" "}
+            &copy; {formatKLDateTime(new Date(), { year: "numeric" })} Shamin Mohd Saffian. All rights reserved. &middot; Support:{" "}
             <a href="mailto:shamin@ukm.edu.my" style={{ color: "var(--text-muted)" }}>
               shamin@ukm.edu.my
             </a>{" "}

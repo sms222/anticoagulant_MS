@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { calculateAge, isWarfarin, formatIndication, EMERGENCY_CONTACT_TEMPLATE } from "@/lib/types";
 import { formatDateDisplay } from "@/lib/format";
+import { todayKL } from "@/lib/datetime";
 import { VisitGuard } from "./VisitGuard";
 import {
   calculateRosendaalTTR,
@@ -1786,7 +1787,7 @@ function RemindersView({ patientId, reminders }: { patientId: string; reminders:
   const boundAdd = addReminder.bind(null, patientId);
   const open = reminders.filter((r) => !r.completed);
   const done = reminders.filter((r) => r.completed);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKL();
 
   return (
     <div>

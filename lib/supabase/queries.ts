@@ -1,5 +1,6 @@
 import { createServerClient } from "./server";
 import { autoStopStaleVisits } from "./visit-timer";
+import { todayKL, addDaysKL, startOfWeekKL, startOfMonthKL } from "@/lib/datetime";
 import type {
   Patient,
   Encounter,
@@ -136,7 +137,7 @@ export async function getAppointmentsForDate(date: string): Promise<TodaysAppoin
 }
 
 export async function getTodaysAppointments(): Promise<TodaysAppointment[]> {
-  return getAppointmentsForDate(new Date().toISOString().slice(0, 10));
+  return getAppointmentsForDate(todayKL());
 }
 
 export async function getHighInrAlerts(): Promise<{ patient_id: string; name: string; last_inr: number }[]> {
@@ -339,13 +340,11 @@ function computeVisitDurationStats(durationsSeconds: number[]): VisitDurationSta
 
 export async function getClinicReportData(): Promise<ClinicReportData> {
   const supabase = createServerClient();
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay());
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const ninetyDaysAgo = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayIso = todayKL();
+  const startOfWeek = startOfWeekKL();
+  const startOfMonth = startOfMonthKL();
+  const thirtyDaysAgo = addDaysKL(-30);
+  const ninetyDaysAgo = addDaysKL(-90);
 
   const [
     { data: patients },
@@ -364,8 +363,8 @@ export async function getClinicReportData(): Promise<ClinicReportData> {
       .from("patients")
       .select("id, intake_date, anticoagulant_type, target_inr_low, target_inr_high")
       .eq("status", "active"),
-    supabase.from("appointments").select("id").gte("scheduled_date", startOfWeek.toISOString().slice(0, 10)).lte("scheduled_date", todayIso),
-    supabase.from("appointments").select("id").gte("scheduled_date", startOfMonth.toISOString().slice(0, 10)).lte("scheduled_date", todayIso),
+    supabase.from("appointments").select("id").gte("scheduled_date", startOfWeek).lte("scheduled_date", todayIso),
+    supabase.from("appointments").select("id").gte("scheduled_date", startOfMonth).lte("scheduled_date", todayIso),
     supabase.from("appointments").select("status, appointment_type, pharmacist_id").gte("scheduled_date", thirtyDaysAgo),
     supabase.from("clinical_events").select("patient_id, event_type").gte("event_date", ninetyDaysAgo),
     supabase

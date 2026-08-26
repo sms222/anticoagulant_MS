@@ -7,6 +7,7 @@ import { calculateRosendaalTTR, calculatePINRR, type InrReading, type TargetRang
 import { calculateInrVariability, calculateExtremeValueRate } from "@/lib/calculators/inr-variability";
 import { calculateHasBled, detectInteractingDrugs, hasBledInputsFromComorbidities } from "@/lib/calculators/has-bled";
 import { calculateCha2ds2Vasc, cha2ds2VascFromComorbidities } from "@/lib/calculators/cha2ds2-vasc";
+import { todayKL, addDaysKL, formatKLDateTime } from "@/lib/datetime";
 
 // ---------------------------------------------------------------------------
 // Demo data model — a trimmed-down mirror of the real schema, held entirely
@@ -85,10 +86,10 @@ const SMOKING_OPTIONS = [
 ];
 
 function daysAgo(n: number): string {
-  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return addDaysKL(-n);
 }
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayKL();
 }
 function uid(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -291,7 +292,7 @@ function DemoDashboard({
   const patientById = new Map(patients.map((p) => [p.id, p]));
   const todayAppts = appointments.filter((a) => a.day === "today");
   const tomorrowAppts = appointments.filter((a) => a.day === "tomorrow");
-  const todayLabel = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const todayLabel = formatKLDateTime(new Date(), { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   const total = todayAppts.length;
   const completed = todayAppts.filter((a) => a.status === "completed").length;

@@ -2,6 +2,7 @@
 
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { todayKL } from "@/lib/datetime";
 
 export async function createPatient(formData: FormData) {
   const supabase = createServerClient();
@@ -50,7 +51,7 @@ export async function createPatient(formData: FormData) {
       target_inr: targetInr,
       target_inr_low: targetInrLow,
       target_inr_high: targetInrHigh,
-      effective_date: new Date().toISOString().slice(0, 10),
+      effective_date: todayKL(),
     });
   }
 
@@ -61,7 +62,7 @@ export async function createPatient(formData: FormData) {
       patient_id: data.id,
       weight_kg: weightKg,
       height_cm: heightCm,
-      effective_date: new Date().toISOString().slice(0, 10),
+      effective_date: todayKL(),
     });
   }
 

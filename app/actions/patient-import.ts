@@ -3,6 +3,7 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { todayKL } from "@/lib/datetime";
 import { listImportableSheetNames, parsePatientSheet, NON_PATIENT_SHEET_NAMES } from "@/lib/patient-import/parse";
 import { computeDiff, type ExistingPatientRow } from "@/lib/patient-import/diff";
 import type { ImportPreview } from "@/lib/patient-import/types";
@@ -132,7 +133,7 @@ export async function commitPatientImport(input: CommitImportInput): Promise<{ p
         emergency_contact_info: parsed.emergency_contact_info,
         notes: parsed.notes,
         status: "active",
-        intake_date: new Date().toISOString().slice(0, 10),
+        intake_date: todayKL(),
       })
       .select("id")
       .single();
@@ -145,7 +146,7 @@ export async function commitPatientImport(input: CommitImportInput): Promise<{ p
         target_inr: parsed.target_inr,
         target_inr_low: targetInrLow,
         target_inr_high: targetInrHigh,
-        effective_date: new Date().toISOString().slice(0, 10),
+        effective_date: todayKL(),
       });
     }
     if (parsed.weight_kg !== null || parsed.height_cm !== null) {
@@ -153,7 +154,7 @@ export async function commitPatientImport(input: CommitImportInput): Promise<{ p
         patient_id: patientId,
         weight_kg: parsed.weight_kg,
         height_cm: parsed.height_cm,
-        effective_date: new Date().toISOString().slice(0, 10),
+        effective_date: todayKL(),
       });
     }
   } else {
@@ -227,7 +228,7 @@ export async function commitPatientImport(input: CommitImportInput): Promise<{ p
         target_inr: parsed.target_inr,
         target_inr_low: targetInrLow,
         target_inr_high: targetInrHigh,
-        effective_date: new Date().toISOString().slice(0, 10),
+        effective_date: todayKL(),
       });
       await supabase.from("patients").update({ target_inr_low: targetInrLow, target_inr_high: targetInrHigh }).eq("id", patientId);
     }
@@ -240,7 +241,7 @@ export async function commitPatientImport(input: CommitImportInput): Promise<{ p
           patient_id: patientId,
           weight_kg: weightApplied ? parsed.weight_kg : null,
           height_cm: heightApplied ? parsed.height_cm : null,
-          effective_date: new Date().toISOString().slice(0, 10),
+          effective_date: todayKL(),
         });
       }
     }
